@@ -34,6 +34,7 @@ struct Vertex
 {
     float3 position;
     float3 normal;
+    float2 texcoord;
 };
 
 RaytracingAccelerationStructure Scene : register(t0, space0);
@@ -46,7 +47,6 @@ StructuredBuffer<uint> Indices : register(t1, space0);
 StructuredBuffer<Vertex> Vertices : register(t2, space0);
 
 Texture2D g_texture : register(t3);
-SamplerState g_sampler : register(s0);
 
 typedef BuiltInTriangleIntersectionAttributes MyAttributes;
 struct RayPayload
@@ -129,15 +129,30 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
         Vertices[indices.y].normal,
         Vertices[indices.z].normal 
     };
+    
+    float2 vertexTexcoords[3] =
+    {
+        Vertices[indices.x].texcoord,
+        Vertices[indices.y].texcoord,
+        Vertices[indices.z].texcoord
+    };
 
     float3 triangleNormal = HitAttribute(vertexNormals, attr);
+    float2 interpolatedTexcoord = vertexTexcoords[0] * barycentrics.x + vertexTexcoords[1] * barycentrics.y + vertexTexcoords[2] * barycentrics.z;
+    // Assuming interpolatedTexcoord ranges from (0,0) to (1,1)
+    float2 texcoord = interpolatedTexcoord.xy;
+
+    // Perform wrap manually
+    texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
     
+    // Sample the texture
+    float4 sampledColor = g_texture.Load(int3(texcoord*float2(256, 256), 0));
     
-    float3 lightDir = normalize(float3(0.5, -1, -0.2));
-    float normDotDir = dot(triangleNormal, lightDir);
-    float3 basecolor = saturate(normDotDir * float3(1, 1, 1)); // Clamping color values to [0, 1]
-    basecolor = max(basecolor, float3(0.3, 0.3, 0.3)); // Applying minimum ambient value of 0.3
-    payload.color = float4(basecolor, 1.0f);
+    //float3 lightDir = normalize(float3(0.5, -1, -0.2));
+    //float normDotDir = dot(triangleNormal, lightDir);
+    //float3 basecolor = saturate(normDotDir * sampledColor); // Clamping color values to [0, 1]
+    //basecolor = max(basecolor, float3(0.3, 0.3, 0.3)); // Applying minimum ambient value of 0.3
+    payload.color = sampledColor;
     
      // Calculate depth as the distance from the eye position to the hit point
     payload.depth = RayTCurrent();

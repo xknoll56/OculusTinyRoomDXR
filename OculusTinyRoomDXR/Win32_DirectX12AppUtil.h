@@ -231,10 +231,15 @@ struct DirectX12
     {
         float x, y, z;
     };
+    struct float2
+    {
+        float x, y;
+    };
     struct RTXVertex 
     {
         float3 postion;
         float3 normal;
+        float2 uv;
     };
 
 
@@ -495,25 +500,6 @@ struct DirectX12
         // Global Root Signature
         // This is a root signature that is shared across all raytracing shaders invoked during a DispatchRays() call.
         {
-
-
-
-            D3D12_STATIC_SAMPLER_DESC sampler = {};
-            sampler.Filter = D3D12_FILTER_ANISOTROPIC;
-            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-            sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-            sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-            sampler.MipLODBias = 0;
-            sampler.MaxAnisotropy = 8;
-            sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-            sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
-            sampler.MinLOD = 0.0f;
-            sampler.MaxLOD = D3D12_FLOAT32_MAX;
-            sampler.ShaderRegister = 0;
-            sampler.RegisterSpace = 0;
-            sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
-
             CD3DX12_DESCRIPTOR_RANGE UAVDescriptor;
             UAVDescriptor.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
             CD3DX12_DESCRIPTOR_RANGE UAVDescriptor1;
@@ -529,7 +515,7 @@ struct DirectX12
             rootParameters[GlobalRootSignatureParams::SceneConstantSlot].InitAsConstantBufferView(0);
             rootParameters[GlobalRootSignatureParams::VertexBufferSlot].InitAsDescriptorTable(1, &vertexBufferDescriptors);
             rootParameters[GlobalRootSignatureParams::TextureSlot].InitAsDescriptorTable(1, &textureDescriptorRange, D3D12_SHADER_VISIBILITY_ALL);
-            CD3DX12_ROOT_SIGNATURE_DESC globalRootSignatureDesc(ARRAYSIZE(rootParameters), rootParameters, 1, &sampler);
+            CD3DX12_ROOT_SIGNATURE_DESC globalRootSignatureDesc(ARRAYSIZE(rootParameters), rootParameters);
             SerializeAndCreateRaytracingRootSignature(globalRootSignatureDesc, &m_raytracingGlobalRootSignature);
         }
 
@@ -851,14 +837,19 @@ struct DirectX12
         {
             0, 2, 1,
             0, 3, 2,
+
             4, 5, 6,
             4, 6, 7,
+
             8, 9, 10,
             8, 10, 11,
+
             12, 14, 13,
             12, 15, 14,
+
             16, 18, 17,
             16, 19, 18,
+
             20, 21, 22,
             20, 22, 23,
         };
@@ -867,40 +858,40 @@ struct DirectX12
         RTXVertex vertices[] =
         {
             // Back face
-            { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f},
-            { 0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f},
-            { 0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f},
-            { -0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f},
+            { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 0.0f},
+            { 0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  1.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,   1.0f, 1.0f},
+            { -0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 1.0f},
 
             // Front face
-            { -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f},
-            { 0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f},
-            { 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f},
-            { -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f , 0.0f, 0.0f},
+            { 0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f   ,1.0f, 1.0f},
+            { -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,0.0f, 1.0f},
 
             // Right face
-            { 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f},
-            { 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f},
-            { 0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f},
-            { 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f},
+            { 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
+            { 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
 
             // Left face
-            { -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f},
-            { -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f},
-            { -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f},
-            { -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f},
+            { -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
+            { -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+            { -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
 
             // Top face
-            { -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f},
-            { 0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f},
-            { 0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f},
-            { -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f},
+            { -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f  ,0.0f, 1.0f},
 
             // Bottom face
-            { -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f},
-            { 0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f},
-            { 0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f},
-            { -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f},
+            { -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f  ,0.0f, 1.0f},
         };
 
         AllocateUploadBuffer(Device, vertices, sizeof(vertices), &m_vertexBuffer.resource);
@@ -1837,7 +1828,7 @@ struct DirectX12
     }
 
 
-    void DoRaytracing(XMMATRIX projectionToWorld, XMVECTOR eyePos)
+    void DoRaytracing(XMMATRIX projectionToWorld, XMVECTOR eyePos, D3D12_GPU_DESCRIPTOR_HANDLE  textureGpuHandle)
     {
         DirectX12::SwapChainFrameResources& currFrameRes = CurrentFrameResources();
         //FrameResources& currConstantRes = PerFrameRes[DIRECTX.SwapChainFrameIndex][DIRECTX.ActiveEyeIndex];
@@ -1875,6 +1866,7 @@ struct DirectX12
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputViewSlot, m_raytracingOutputResourceUAVGpuDescriptors[ActiveContext]);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputDepthSlot, m_raytracingDepthOutputResourceUAVGpuDescriptors[ActiveContext]);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::VertexBufferSlot, m_indexBuffer.gpuDescriptorHandle);
+        currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::TextureSlot, textureGpuHandle);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootShaderResourceView(GlobalRootSignatureParams::AccelerationStructureSlot, m_topLevelAccelerationStructure->GetGPUVirtualAddress());
         DispatchRays(currFrameRes.m_dxrCommandList[ActiveContext].Get(), m_dxrStateObject.Get(), &dispatchDesc);
     }
