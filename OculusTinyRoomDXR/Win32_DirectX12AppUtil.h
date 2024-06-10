@@ -456,6 +456,7 @@ struct DirectX12
             AccelerationStructureSlot,
             SceneConstantSlot,
             VertexBufferSlot,
+            TextureSlot,
             Count
         };
     };
@@ -494,19 +495,41 @@ struct DirectX12
         // Global Root Signature
         // This is a root signature that is shared across all raytracing shaders invoked during a DispatchRays() call.
         {
+
+
+
+            D3D12_STATIC_SAMPLER_DESC sampler = {};
+            sampler.Filter = D3D12_FILTER_ANISOTROPIC;
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+            sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+            sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+            sampler.MipLODBias = 0;
+            sampler.MaxAnisotropy = 8;
+            sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+            sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+            sampler.MinLOD = 0.0f;
+            sampler.MaxLOD = D3D12_FLOAT32_MAX;
+            sampler.ShaderRegister = 0;
+            sampler.RegisterSpace = 0;
+            sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+
             CD3DX12_DESCRIPTOR_RANGE UAVDescriptor;
             UAVDescriptor.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
             CD3DX12_DESCRIPTOR_RANGE UAVDescriptor1;
             UAVDescriptor1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1);
             CD3DX12_DESCRIPTOR_RANGE vertexBufferDescriptors;
             vertexBufferDescriptors.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 1);
+            CD3DX12_DESCRIPTOR_RANGE textureDescriptorRange;
+            textureDescriptorRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
             CD3DX12_ROOT_PARAMETER rootParameters[GlobalRootSignatureParams::Count];
             rootParameters[GlobalRootSignatureParams::OutputViewSlot].InitAsDescriptorTable(1, &UAVDescriptor);
             rootParameters[GlobalRootSignatureParams::OutputDepthSlot].InitAsDescriptorTable(1, &UAVDescriptor1);
             rootParameters[GlobalRootSignatureParams::AccelerationStructureSlot].InitAsShaderResourceView(0);
             rootParameters[GlobalRootSignatureParams::SceneConstantSlot].InitAsConstantBufferView(0);
             rootParameters[GlobalRootSignatureParams::VertexBufferSlot].InitAsDescriptorTable(1, &vertexBufferDescriptors);
-            CD3DX12_ROOT_SIGNATURE_DESC globalRootSignatureDesc(ARRAYSIZE(rootParameters), rootParameters);
+            rootParameters[GlobalRootSignatureParams::TextureSlot].InitAsDescriptorTable(1, &textureDescriptorRange, D3D12_SHADER_VISIBILITY_ALL);
+            CD3DX12_ROOT_SIGNATURE_DESC globalRootSignatureDesc(ARRAYSIZE(rootParameters), rootParameters, 1, &sampler);
             SerializeAndCreateRaytracingRootSignature(globalRootSignatureDesc, &m_raytracingGlobalRootSignature);
         }
 

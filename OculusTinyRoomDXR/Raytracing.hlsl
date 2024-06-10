@@ -45,6 +45,9 @@ ConstantBuffer<SceneConstantBuffer> g_sceneCB : register(b0);
 StructuredBuffer<uint> Indices : register(t1, space0);
 StructuredBuffer<Vertex> Vertices : register(t2, space0);
 
+Texture2D g_texture : register(t3);
+SamplerState g_sampler : register(s0);
+
 typedef BuiltInTriangleIntersectionAttributes MyAttributes;
 struct RayPayload
 {

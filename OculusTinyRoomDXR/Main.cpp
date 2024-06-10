@@ -290,6 +290,8 @@ static bool MainLoop(bool retryCreate)
 
     DIRECTX.InitFrame(drawMirror);
 
+    //Texture testTexture(false, 1024, 1024, Texture::AUTO_FLOOR);
+
     // Main loop
     while (DIRECTX.HandleMessages())
     {
