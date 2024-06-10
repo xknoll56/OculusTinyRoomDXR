@@ -379,10 +379,8 @@ static bool MainLoop(bool retryCreate)
                     p.M[0][2], p.M[1][2], p.M[2][2], p.M[3][2],
                     p.M[0][3], p.M[1][3], p.M[2][3], p.M[3][3]);
                 XMMATRIX prod = XMMatrixMultiply(view, proj);
-                prod = XMMatrixTranspose(prod);
 
-
-                DIRECTX.DoRaytracing(XMMatrixInverse(nullptr, prod), finalCam.GetPosVec());
+                DIRECTX.DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
                 DIRECTX.CopyRaytracingOutputToBackbuffer(pEyeRenderTexture[eye]->GetD3DColorResource(), pEyeRenderTexture[eye]->GetD3DDepthResource());
 
                 resBar = CD3DX12_RESOURCE_BARRIER::Transition(pEyeRenderTexture[eye]->GetD3DColorResource(),

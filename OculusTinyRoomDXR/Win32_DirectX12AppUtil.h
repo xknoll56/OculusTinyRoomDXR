@@ -159,7 +159,7 @@ struct DescHandleProvider
         NextAvailableCpuHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE(descHeap->GetCPUDescriptorHandleForHeapStart());
     }
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE AllocCpuHandle()
+    CD3DX12_CPU_DESCRIPTOR_HANDLE AllocCpuHandle(UINT* pCurrentHandleCount = nullptr)
     {
         CD3DX12_CPU_DESCRIPTOR_HANDLE newHandle{};
         if (FreeHandles.size() > 0)
@@ -172,6 +172,8 @@ struct DescHandleProvider
             VALIDATE((CurrentHandleCount < MaxHandleCount), "Hit maximum number of handles available");
             newHandle = NextAvailableCpuHandle;
             NextAvailableCpuHandle.Offset(IncrementSize);
+            if(pCurrentHandleCount != nullptr)
+                *pCurrentHandleCount = CurrentHandleCount;
             ++CurrentHandleCount;
         }
         return newHandle;
@@ -266,9 +268,9 @@ struct DirectX12
     RayGenConstantBuffer m_rayGenCB;
 
     //Raytracing Descriptors
-    ComPtr<ID3D12DescriptorHeap> m_descriptorHeap;
-    UINT m_descriptorsAllocated;
-    UINT m_descriptorSize;
+    //ComPtr<ID3D12DescriptorHeap> m_descriptorHeap;
+    //UINT m_descriptorsAllocated;
+    //UINT m_descriptorSize;
 
     // Geometry
     struct D3DBuffer
@@ -723,7 +725,7 @@ struct DirectX12
         // Shader config
         // Defines the maximum sizes in bytes for the ray payload and attribute structure.
         auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
-        UINT payloadSize = 5 * sizeof(float);   // float4 color
+        UINT payloadSize = 5 * sizeof(float);   // float4 color, float depth
         UINT attributeSize = 2 * sizeof(float); // float2 barycentrics
         shaderConfig->Config(payloadSize, attributeSize);
 
@@ -752,21 +754,21 @@ struct DirectX12
         ThrowIfFailed(m_dxrDevice->CreateStateObject(raytracingPipeline, IID_PPV_ARGS(&m_dxrStateObject)), L"Couldn't create DirectX Raytracing state object.\n");
     }
 
-    void CreateRaytracingDescriptorHeap()
-    {
+    //void CreateRaytracingDescriptorHeap()
+    //{
 
-        D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc = {};
-        // Allocate a heap for a single descriptor:
-        // 1 - raytracing output texture UAV
-        descriptorHeapDesc.NumDescriptors = 20;
-        descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        descriptorHeapDesc.NodeMask = 0;
-        Device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&m_descriptorHeap));
-        //NAME_D3D12_OBJECT(m_descriptorHeap);
+    //    D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc = {};
+    //    // Allocate a heap for a single descriptor:
+    //    // 1 - raytracing output texture UAV
+    //    descriptorHeapDesc.NumDescriptors = 20;
+    //    descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    //    descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    //    descriptorHeapDesc.NodeMask = 0;
+    //    Device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&m_descriptorHeap));
+    //    //NAME_D3D12_OBJECT(m_descriptorHeap);
 
-        m_descriptorSize = Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    }
+    //    m_descriptorSize = Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    //}
 
 
     inline void AllocateUploadBuffer(ID3D12Device* pDevice, void* pData, UINT64 datasize, ID3D12Resource** ppResource, const wchar_t* resourceName = nullptr)
@@ -812,9 +814,10 @@ struct DirectX12
             srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
             srvDesc.Buffer.StructureByteStride = elementSize;
         }
-        UINT descriptorIndex = AllocateDescriptor(&buffer->cpuDescriptorHandle);
+        UINT descriptorIndex;
+        buffer->cpuDescriptorHandle = CbvSrvHandleProvider.AllocCpuHandle(&descriptorIndex);
         Device->CreateShaderResourceView(buffer->resource.Get(), &srvDesc, buffer->cpuDescriptorHandle);
-        buffer->gpuDescriptorHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_descriptorHeap->GetGPUDescriptorHandleForHeapStart(), descriptorIndex, m_descriptorSize);
+        buffer->gpuDescriptorHandle = CbvSrvHandleProvider.GpuHandleFromCpuHandle(buffer->cpuDescriptorHandle);
         return descriptorIndex;
     }
 
@@ -1024,7 +1027,7 @@ struct DirectX12
         }
 
         {
-            UINT maxNumCbvSrvHandles = 100;
+            UINT maxNumCbvSrvHandles = 1000;
             D3D12_DESCRIPTOR_HEAP_DESC cbvSrvHeapDesc = {};
             cbvSrvHeapDesc.NumDescriptors = maxNumCbvSrvHandles * maxConcurrentDescriptors;
             cbvSrvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -1089,7 +1092,7 @@ struct DirectX12
         CreateRaytracingInterfaces();
         CreateRootSignatures();
         CreateRaytracingPipelineStateObject();
-        CreateRaytracingDescriptorHeap();
+        //CreateRaytracingDescriptorHeap();
         BuildGeometry();
         BuildAccelerationStructures();
         CreateConstantBuffers();
@@ -1460,13 +1463,13 @@ struct DirectX12
         }
     }
 
-    UINT AllocateDescriptor(D3D12_CPU_DESCRIPTOR_HANDLE* cpuDescriptor)
-    {
-        auto descriptorHeapCpuBase = m_descriptorHeap->GetCPUDescriptorHandleForHeapStart();
-        UINT descriptorIndexToUse = m_descriptorsAllocated++;
-        *cpuDescriptor = CD3DX12_CPU_DESCRIPTOR_HANDLE(descriptorHeapCpuBase, descriptorIndexToUse, m_descriptorSize);
-        return descriptorIndexToUse;
-    }
+    //UINT AllocateDescriptor(D3D12_CPU_DESCRIPTOR_HANDLE* cpuDescriptor)
+    //{
+    //    auto descriptorHeapCpuBase = m_descriptorHeap->GetCPUDescriptorHandleForHeapStart();
+    //    UINT descriptorIndexToUse = m_descriptorsAllocated++;
+    //    *cpuDescriptor = CD3DX12_CPU_DESCRIPTOR_HANDLE(descriptorHeapCpuBase, descriptorIndexToUse, m_descriptorSize);
+    //    return descriptorIndexToUse;
+    //}
 
     void CreateRaytracingOutputResource(UINT width, UINT height)
     {
@@ -1481,12 +1484,11 @@ struct DirectX12
             ThrowIfFailed(Device->CreateCommittedResource(
                 &defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &uavDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_raytracingOutputs[0])));
             //NAME_D3D12_OBJECT(m_raytracingOutput);
-            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle;
-            m_raytracingOutputResourceUAVDescriptorHeapIndexs[0] = AllocateDescriptor(&uavDescriptorHandle);
+            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle = CbvSrvHandleProvider.AllocCpuHandle(&m_raytracingOutputResourceUAVDescriptorHeapIndexs[0]);
             D3D12_UNORDERED_ACCESS_VIEW_DESC UAVDesc = {};
             UAVDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
             Device->CreateUnorderedAccessView(m_raytracingOutputs[0].Get(), nullptr, &UAVDesc, uavDescriptorHandle);
-            m_raytracingOutputResourceUAVGpuDescriptors[0] = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_descriptorHeap->GetGPUDescriptorHandleForHeapStart(), m_raytracingOutputResourceUAVDescriptorHeapIndexs[0], m_descriptorSize);
+            m_raytracingOutputResourceUAVGpuDescriptors[0] = CbvSrvHandleProvider.GpuHandleFromCpuHandle(uavDescriptorHandle);
         }
 
         {
@@ -1494,12 +1496,11 @@ struct DirectX12
                 &defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &uavDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_raytracingOutputs[1])));
             //NAME_D3D12_OBJECT(m_raytracingOutput);
 
-            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle;
-            m_raytracingOutputResourceUAVDescriptorHeapIndexs[1] = AllocateDescriptor(&uavDescriptorHandle);
+            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle = CbvSrvHandleProvider.AllocCpuHandle(&m_raytracingOutputResourceUAVDescriptorHeapIndexs[1]);
             D3D12_UNORDERED_ACCESS_VIEW_DESC UAVDesc = {};
             UAVDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
             Device->CreateUnorderedAccessView(m_raytracingOutputs[1].Get(), nullptr, &UAVDesc, uavDescriptorHandle);
-            m_raytracingOutputResourceUAVGpuDescriptors[1] = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_descriptorHeap->GetGPUDescriptorHandleForHeapStart(), m_raytracingOutputResourceUAVDescriptorHeapIndexs[1], m_descriptorSize);
+            m_raytracingOutputResourceUAVGpuDescriptors[1] = CbvSrvHandleProvider.GpuHandleFromCpuHandle(uavDescriptorHandle);
         }
 
         // Now create the depth buffers
@@ -1511,12 +1512,11 @@ struct DirectX12
                 &defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &uavDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_raytracingDepthOutputs[0])));
             //NAME_D3D12_OBJECT(m_raytracingOutput);
 
-            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle;
-            m_raytracingDepthOutputResourceUAVDescriptorHeapIndexs[0] = AllocateDescriptor(&uavDescriptorHandle);
+            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle = CbvSrvHandleProvider.AllocCpuHandle(&m_raytracingDepthOutputResourceUAVDescriptorHeapIndexs[0]);
             D3D12_UNORDERED_ACCESS_VIEW_DESC UAVDesc = {};
             UAVDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
             Device->CreateUnorderedAccessView(m_raytracingDepthOutputs[0].Get(), nullptr, &UAVDesc, uavDescriptorHandle);
-            m_raytracingDepthOutputResourceUAVGpuDescriptors[0] = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_descriptorHeap->GetGPUDescriptorHandleForHeapStart(), m_raytracingDepthOutputResourceUAVDescriptorHeapIndexs[0], m_descriptorSize);
+            m_raytracingDepthOutputResourceUAVGpuDescriptors[0] = CbvSrvHandleProvider.GpuHandleFromCpuHandle(uavDescriptorHandle);
         }
 
         {
@@ -1524,12 +1524,11 @@ struct DirectX12
                 &defaultHeapProperties, D3D12_HEAP_FLAG_NONE, &uavDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_raytracingDepthOutputs[1])));
             //NAME_D3D12_OBJECT(m_raytracingOutput);
 
-            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle;
-            m_raytracingDepthOutputResourceUAVDescriptorHeapIndexs[1] = AllocateDescriptor(&uavDescriptorHandle);
+            D3D12_CPU_DESCRIPTOR_HANDLE uavDescriptorHandle = CbvSrvHandleProvider.AllocCpuHandle(&m_raytracingDepthOutputResourceUAVDescriptorHeapIndexs[1]);
             D3D12_UNORDERED_ACCESS_VIEW_DESC UAVDesc = {};
             UAVDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
             Device->CreateUnorderedAccessView(m_raytracingDepthOutputs[1].Get(), nullptr, &UAVDesc, uavDescriptorHandle);
-            m_raytracingDepthOutputResourceUAVGpuDescriptors[1] = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_descriptorHeap->GetGPUDescriptorHandleForHeapStart(), m_raytracingDepthOutputResourceUAVDescriptorHeapIndexs[1], m_descriptorSize);
+            m_raytracingDepthOutputResourceUAVGpuDescriptors[1] = CbvSrvHandleProvider.GpuHandleFromCpuHandle(uavDescriptorHandle);
         }
     }
 
@@ -1849,7 +1848,7 @@ struct DirectX12
 
         // Bind the heaps, acceleration structure and dispatch rays.    
         D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
-        currFrameRes.CommandLists[ActiveContext]->SetDescriptorHeaps(1, m_descriptorHeap.GetAddressOf());
+        currFrameRes.CommandLists[ActiveContext]->SetDescriptorHeaps(1, &CbvSrvHeap);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputViewSlot, m_raytracingOutputResourceUAVGpuDescriptors[ActiveContext]);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputDepthSlot, m_raytracingDepthOutputResourceUAVGpuDescriptors[ActiveContext]);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::VertexBufferSlot, m_indexBuffer.gpuDescriptorHandle);
