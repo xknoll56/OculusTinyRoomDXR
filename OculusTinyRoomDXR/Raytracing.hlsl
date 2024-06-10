@@ -153,6 +153,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     //float3 basecolor = saturate(normDotDir * sampledColor); // Clamping color values to [0, 1]
     //basecolor = max(basecolor, float3(0.3, 0.3, 0.3)); // Applying minimum ambient value of 0.3
     payload.color = sampledColor;
+    //payload.color = float4(1, 1, 1, 1);
     
      // Calculate depth as the distance from the eye position to the hit point
     payload.depth = RayTCurrent();
