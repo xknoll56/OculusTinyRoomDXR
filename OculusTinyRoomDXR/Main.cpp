@@ -288,7 +288,7 @@ static bool MainLoop(bool retryCreate)
 
     // Create camera
     static float Yaw = XM_PI;
-    mainCam = new Camera(XMVectorSet(0.0f, -2.0f, -10.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
+    mainCam = new Camera(XMVectorSet(0.0f, 0.0f, -10.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
 
     DIRECTX.InitFrame(drawMirror);
 

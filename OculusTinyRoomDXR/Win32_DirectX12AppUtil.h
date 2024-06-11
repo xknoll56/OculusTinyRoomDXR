@@ -1202,7 +1202,7 @@ struct DirectX12
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS topLevelInputs = {};
         topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
         topLevelInputs.Flags = buildFlags;
-        topLevelInputs.NumDescs = 1;
+        topLevelInputs.NumDescs = 2;
         topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo = {};
@@ -1235,13 +1235,16 @@ struct DirectX12
             AllocateUAVBuffer(Device, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_topLevelAccelerationStructure, initialResourceState, L"TopLevelAccelerationStructure");
         }
 
-        // Create an instance desc for the bottom-level acceleration structure.
         ComPtr<ID3D12Resource> instanceDescs;
-        D3D12_RAYTRACING_INSTANCE_DESC instanceDesc = {};
-        instanceDesc.Transform[0][0] = instanceDesc.Transform[1][1] = instanceDesc.Transform[2][2] = 1;
-        instanceDesc.InstanceMask = 1;
-        instanceDesc.AccelerationStructure = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
-        AllocateUploadBuffer(Device, &instanceDesc, sizeof(instanceDesc), &instanceDescs, L"InstanceDescs");
+        D3D12_RAYTRACING_INSTANCE_DESC instanceDescsArray[2] = {};
+        for (int i = 0; i < 2; ++i) {
+            instanceDescsArray[i].Transform[0][0] = instanceDescsArray[i].Transform[1][1] = instanceDescsArray[i].Transform[2][2] = 1;
+            instanceDescsArray[i].InstanceMask = 1;
+            instanceDescsArray[i].InstanceID = i; // Assign unique instance IDs
+            instanceDescsArray[i].AccelerationStructure = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+        }
+        instanceDescsArray->Transform[0][3] = 3.0f;
+        AllocateUploadBuffer(Device, instanceDescsArray, sizeof(instanceDescsArray), &instanceDescs, L"InstanceDescs");
 
         // Bottom Level Acceleration Structure desc
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
