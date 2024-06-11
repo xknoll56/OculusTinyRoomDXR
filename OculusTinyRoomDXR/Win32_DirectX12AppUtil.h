@@ -217,14 +217,23 @@ struct DirectX12
         Viewport stencil;
     };
 
+    struct TextureResource
+    {
+        UINT id;
+        UINT width;
+        UINT height;
+    };
+
+    struct InstanceData
+    {
+        UINT id;
+    };
+
     struct alignas(256) SceneConstantBuffer
     {
         XMMATRIX projectionToWorld;
         XMVECTOR eyePosition;
-        XMVECTOR eyeFovs;
-        XMVECTOR eyeRot;
-        XMVECTOR pixelsPerTanFov;
-        float idp;
+        TextureResource textureResources[1];
     };
 
     struct float3 
@@ -329,6 +338,9 @@ struct DirectX12
     DrawContext                 ActiveContext;
 
     SceneConstantBuffer m_sceneCB[2][SwapChainNumFrames];
+
+    ComPtr<ID3D12Resource> textureArray;
+    D3D12_GPU_DESCRIPTOR_HANDLE texArrayGpuHandle;
 
     // per-swap-chain-frame resources
     struct SwapChainFrameResources
@@ -1110,6 +1122,7 @@ struct DirectX12
         BuildGeometry();
         BuildAccelerationStructures();
         CreateConstantBuffers();
+        CreateTextureArray(256, 256, 1);
         BuildShaderTables();
         CreateRaytracingOutputResource(eyeWidth, eyeHeight);
 
@@ -1156,6 +1169,69 @@ struct DirectX12
         ThrowIfFailed(m_perFrameConstants[1]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[1])));
     }
 
+    void CreateTextureArray(UINT maxWidth, UINT maxHeight, UINT textureCount)
+    {
+        // Create texture array resource
+        D3D12_RESOURCE_DESC textureArrayDesc = {};
+        textureArrayDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        textureArrayDesc.Alignment = 0;
+        textureArrayDesc.Width = maxWidth;
+        textureArrayDesc.Height = maxHeight;
+        textureArrayDesc.DepthOrArraySize = textureCount;
+        textureArrayDesc.MipLevels = 1;
+        textureArrayDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        textureArrayDesc.SampleDesc.Count = 1;
+        textureArrayDesc.SampleDesc.Quality = 0;
+        textureArrayDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        textureArrayDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+
+        CD3DX12_HEAP_PROPERTIES heapProperties(D3D12_HEAP_TYPE_DEFAULT);
+        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+            DXGI_FORMAT_R8G8B8A8_UNORM, maxWidth, maxHeight, textureCount);
+
+        Device->CreateCommittedResource(
+            &heapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &resourceDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&textureArray));
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = textureArrayDesc.Format;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+        srvDesc.Texture2DArray.MipLevels = 1;
+        srvDesc.Texture2DArray.ArraySize = textureCount;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE texArrayCpuHandle = CbvSrvHandleProvider.AllocCpuHandle();
+        Device->CreateShaderResourceView(textureArray.Get(), &srvDesc, texArrayCpuHandle);
+        texArrayGpuHandle = CbvSrvHandleProvider.GpuHandleFromCpuHandle(texArrayCpuHandle);
+    }
+
+    void CopyTextureSubresource(
+        ID3D12GraphicsCommandList* commandList,
+        ID3D12Resource* destResource,
+        UINT destSubresourceIndex,
+        ID3D12Resource* srcResource)
+    {
+        // Describe the destination subresource (array slice in the texture array)
+        D3D12_TEXTURE_COPY_LOCATION destLocation = {};
+        destLocation.pResource = destResource;
+        destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        destLocation.SubresourceIndex = destSubresourceIndex;
+
+        // Describe the source subresource (individual texture)
+        D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
+        srcLocation.pResource = srcResource;
+        srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        srcLocation.SubresourceIndex = 0; // Assuming we are copying the first (and only) subresource
+
+        // Copy the texture data
+        commandList->CopyTextureRegion(&destLocation, 0, 0, 0, &srcLocation, nullptr);
+    }
+
     inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource** ppResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, const wchar_t* resourceName = nullptr)
     {
         auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
@@ -1179,7 +1255,7 @@ struct DirectX12
     {
 
         // Reset the command list for the acceleration structure construction.
-        CurrentFrameResources().CommandLists[0]->Reset(CurrentFrameResources().CommandAllocators[0], nullptr);
+        CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
         D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
         geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
@@ -1267,15 +1343,15 @@ struct DirectX12
             {
                 raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
                 CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_bottomLevelAccelerationStructure.Get());
-                CurrentFrameResources().CommandLists[0]->ResourceBarrier(1, &barrier);
+                CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
                 raytracingCommandList->BuildRaytracingAccelerationStructure(&topLevelBuildDesc, 0, nullptr);
             };
 
         // Build acceleration structure.
-        BuildAccelerationStructure(CurrentFrameResources().m_dxrCommandList[0].Get());
+        BuildAccelerationStructure(CurrentFrameResources().m_dxrCommandList[DrawContext_Final].Get());
 
         // Kick off acceleration structure construction.
-        SubmitCommandList((DrawContext)0);
+        SubmitCommandList(DrawContext_Final);
 
         // Wait for GPU to finish as the locally created temporary GPU resources will get released once we go out of scope.
         WaitForGpu();
@@ -1858,6 +1934,8 @@ struct DirectX12
 
         m_sceneCB[ActiveContext][SwapChainFrameIndex].projectionToWorld = projectionToWorld;
         m_sceneCB[ActiveContext][SwapChainFrameIndex].eyePosition = eyePos;
+        m_sceneCB[ActiveContext][SwapChainFrameIndex].textureResources[0].width = 256;
+        m_sceneCB[ActiveContext][SwapChainFrameIndex].textureResources[0].height = 256;
         // Copy the updated scene constant buffer to GPU.
         memcpy(&m_mappedConstantData[ActiveContext][SwapChainFrameIndex], &m_sceneCB[ActiveContext][SwapChainFrameIndex], sizeof(m_sceneCB[ActiveContext][SwapChainFrameIndex]));
         auto cbGpuAddress = m_perFrameConstants[ActiveContext]->GetGPUVirtualAddress() + SwapChainFrameIndex * sizeof(m_mappedConstantData[0][0]);

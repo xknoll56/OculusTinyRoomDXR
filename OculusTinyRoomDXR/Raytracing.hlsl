@@ -20,14 +20,18 @@ struct Viewport
     float bottom;
 };
 
+struct TextureResource
+{
+    uint id;
+    uint width;
+    uint height;
+};
+
 struct SceneConstantBuffer
 {
     float4x4 projectionToWorld;
-    float4 eyePosition;
-    float4 eyeFovs;
-    float4 eyeRot;
-    float4 pixelsPerTanFov;
-    float idp;
+    float4 eyePosition;  
+    TextureResource textureResources[1];
 };
 
 struct Vertex
@@ -36,6 +40,8 @@ struct Vertex
     float3 normal;
     float2 texcoord;
 };
+
+
 
 RaytracingAccelerationStructure Scene : register(t0, space0);
 RWTexture2D<float4> RenderTarget : register(u0);
@@ -146,7 +152,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
     
     // Sample the texture
-    float4 sampledColor = g_texture.Load(int3(texcoord*float2(256, 256), 0));
+    float4 sampledColor = g_texture.Load(int3(texcoord*float2(g_sceneCB.textureResources[0].width, g_sceneCB.textureResources[0].height), 0));
     
     //float3 lightDir = normalize(float3(0.5, -1, -0.2));
     //float normDotDir = dot(triangleNormal, lightDir);
