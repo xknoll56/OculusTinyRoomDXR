@@ -152,7 +152,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
     
     // Sample the texture
-    float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.textureResources[0].width, texcoord.y * g_sceneCB.textureResources[0].height, 0, InstanceID()));
+    float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.textureResources[0].width, texcoord.y * g_sceneCB.textureResources[0].height, InstanceID(), 0));
     
     //float3 lightDir = normalize(float3(0.5, -1, -0.2));
     //float normDotDir = dot(triangleNormal, lightDir);
