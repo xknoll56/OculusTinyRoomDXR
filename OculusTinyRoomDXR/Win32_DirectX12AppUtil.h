@@ -1122,7 +1122,7 @@ struct DirectX12
         BuildGeometry();
         BuildAccelerationStructures();
         CreateConstantBuffers();
-        CreateTextureArray(256, 256, 1);
+        CreateTextureArray(256, 256, 5);
         BuildShaderTables();
         CreateRaytracingOutputResource(eyeWidth, eyeHeight);
 
@@ -1188,7 +1188,7 @@ struct DirectX12
 
         CD3DX12_HEAP_PROPERTIES heapProperties(D3D12_HEAP_TYPE_DEFAULT);
         CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(
-            DXGI_FORMAT_R8G8B8A8_UNORM, maxWidth, maxHeight, textureCount);
+            DXGI_FORMAT_R8G8B8A8_UNORM, maxWidth, maxHeight, textureCount, 1);
 
         Device->CreateCommittedResource(
             &heapProperties,
@@ -1212,15 +1212,17 @@ struct DirectX12
 
     void CopyTextureSubresource(
         ID3D12GraphicsCommandList* commandList,
-        ID3D12Resource* destResource,
         UINT destSubresourceIndex,
         ID3D12Resource* srcResource)
     {
         // Describe the destination subresource (array slice in the texture array)
         D3D12_TEXTURE_COPY_LOCATION destLocation = {};
-        destLocation.pResource = destResource;
+        destLocation.pResource = textureArray.Get();
+        D3D12_RESOURCE_DESC destDesc = textureArray->GetDesc();
+        UINT totalSubresources = destDesc.DepthOrArraySize * destDesc.MipLevels;
         destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        destLocation.SubresourceIndex = destSubresourceIndex;
+        UINT adjustedDestSubresourceIndex = destDesc.MipLevels* destSubresourceIndex;
+        destLocation.SubresourceIndex = adjustedDestSubresourceIndex;
 
         // Describe the source subresource (individual texture)
         D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
@@ -1228,8 +1230,38 @@ struct DirectX12
         srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         srcLocation.SubresourceIndex = 0; // Assuming we are copying the first (and only) subresource
 
+
+        // Transition source resource state to COPY_SOURCE
+        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            srcResource,
+            D3D12_RESOURCE_STATE_COMMON, // Assuming it's in a general state initially
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        commandList->ResourceBarrier(1, &barrier);
+
+        // Transition destination resource state to COPY_DEST
+        barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            textureArray.Get(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, // Assuming it's in a general state initially
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        commandList->ResourceBarrier(1, &barrier);
+
         // Copy the texture data
         commandList->CopyTextureRegion(&destLocation, 0, 0, 0, &srcLocation, nullptr);
+
+        // Transition destination resource state to NON_PIXEL_SHADER_RESOURCE for raytracing shader
+        barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            textureArray.Get(),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        commandList->ResourceBarrier(1, &barrier);
+
+        // Transition source resource state back to COMMON
+        barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            srcResource,
+            D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_COMMON);
+        commandList->ResourceBarrier(1, &barrier);
+
     }
 
     inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource** ppResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, const wchar_t* resourceName = nullptr)
@@ -1294,7 +1326,7 @@ struct DirectX12
         if (!(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
             exit(1);
 
-        ComPtr<ID3D12Resource> scratchResource;
+        ID3D12Resource* scratchResource;
         AllocateUAVBuffer(Device, max(topLevelPrebuildInfo.ScratchDataSizeInBytes, bottomLevelPrebuildInfo.ScratchDataSizeInBytes), &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
 
         // Allocate resources for acceleration structures.
@@ -1311,7 +1343,7 @@ struct DirectX12
             AllocateUAVBuffer(Device, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_topLevelAccelerationStructure, initialResourceState, L"TopLevelAccelerationStructure");
         }
 
-        ComPtr<ID3D12Resource> instanceDescs;
+        ID3D12Resource* instanceDescs;
         D3D12_RAYTRACING_INSTANCE_DESC instanceDescsArray[2] = {};
         for (int i = 0; i < 2; ++i) {
             instanceDescsArray[i].Transform[0][0] = instanceDescsArray[i].Transform[1][1] = instanceDescsArray[i].Transform[2][2] = 1;
@@ -1907,7 +1939,7 @@ struct DirectX12
     }
 
 
-    void DoRaytracing(XMMATRIX projectionToWorld, XMVECTOR eyePos, D3D12_GPU_DESCRIPTOR_HANDLE  textureGpuHandle)
+    void DoRaytracing(XMMATRIX projectionToWorld, XMVECTOR eyePos)
     {
         DirectX12::SwapChainFrameResources& currFrameRes = CurrentFrameResources();
         //FrameResources& currConstantRes = PerFrameRes[DIRECTX.SwapChainFrameIndex][DIRECTX.ActiveEyeIndex];
@@ -1947,7 +1979,7 @@ struct DirectX12
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputViewSlot, m_raytracingOutputResourceUAVGpuDescriptors[ActiveContext]);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputDepthSlot, m_raytracingDepthOutputResourceUAVGpuDescriptors[ActiveContext]);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::VertexBufferSlot, m_indexBuffer.gpuDescriptorHandle);
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::TextureSlot, textureGpuHandle);
+        currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::TextureSlot, texArrayGpuHandle);
         currFrameRes.CommandLists[ActiveContext]->SetComputeRootShaderResourceView(GlobalRootSignatureParams::AccelerationStructureSlot, m_topLevelAccelerationStructure->GetGPUVirtualAddress());
         DispatchRays(currFrameRes.m_dxrCommandList[ActiveContext].Get(), m_dxrStateObject.Get(), &dispatchDesc);
     }
@@ -2029,7 +2061,8 @@ public:
 
     Texture(bool rendertarget, int sizeW, int sizeH, AutoFill autoFillData = (AutoFill)0, int sampleCount = 1)
     {
-        Init(sizeW, sizeH, rendertarget, autoFillData ? 8 : 1, sampleCount);
+        //Init(sizeW, sizeH, rendertarget, autoFillData ? 8 : 1, sampleCount);
+        Init(sizeW, sizeH, rendertarget, 1, sampleCount);
         if (!rendertarget && autoFillData)
             AutoFillTexture(autoFillData);
     }
@@ -2086,7 +2119,7 @@ public:
                     {
                         CD3DX12_RESOURCE_BARRIER resBar = CD3DX12_RESOURCE_BARRIER::Transition(TextureRes,
                             D3D12_RESOURCE_STATE_COPY_DEST,
-                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                            D3D12_RESOURCE_STATE_COMMON);
                         currFrameRes.CommandLists[DrawContext_Final]->ResourceBarrier(1, &resBar);
                     }
                 }

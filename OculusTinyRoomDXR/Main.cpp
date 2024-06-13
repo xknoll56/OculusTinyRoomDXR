@@ -203,6 +203,7 @@ struct OculusEyeTexture
 };
 
 Texture* textureTest;
+Texture* textureTest1;
 // return true to retry later (e.g. after display lost)
 static bool MainLoop(bool retryCreate)
 {
@@ -285,14 +286,16 @@ static bool MainLoop(bool retryCreate)
     // Create the room model
     roomScene = new Scene(false);
     textureTest = new Texture(false, 256, 256, Texture::AUTO_FLOOR);
-
+    textureTest1 = new Texture(false, 256, 256, Texture::AUTO_WALL);
+    
     // Create camera
     static float Yaw = XM_PI;
     mainCam = new Camera(XMVectorSet(0.0f, 0.0f, -10.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
 
     DIRECTX.InitFrame(drawMirror);
 
-    //
+    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[2], 0, textureTest1->TextureRes);
+    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[2], 1, textureTest1->TextureRes);
 
     //Texture testTexture(false, 1024, 1024, Texture::AUTO_FLOOR);
 
@@ -349,6 +352,8 @@ static bool MainLoop(bool retryCreate)
 
             ovrTimewarpProjectionDesc PosTimewarpProjectionDesc = {};
 
+
+            
             // Render Scene to Eye Buffers
             for (int eye = 0; eye < 2; ++eye)
             {
@@ -386,8 +391,7 @@ static bool MainLoop(bool retryCreate)
                     p.M[0][3], p.M[1][3], p.M[2][3], p.M[3][3]);
                 XMMATRIX prod = XMMatrixMultiply(view, proj);
 
-                DIRECTX.DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec(), 
-                    DIRECTX.CbvSrvHandleProvider.GpuHandleFromCpuHandle(textureTest->SrvHandle));
+                DIRECTX.DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
                 DIRECTX.CopyRaytracingOutputToBackbuffer(pEyeRenderTexture[eye]->GetD3DColorResource(), pEyeRenderTexture[eye]->GetD3DDepthResource());
 
                 resBar = CD3DX12_RESOURCE_BARRIER::Transition(pEyeRenderTexture[eye]->GetD3DColorResource(),

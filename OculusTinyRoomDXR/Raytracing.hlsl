@@ -52,7 +52,7 @@ ConstantBuffer<SceneConstantBuffer> g_sceneCB : register(b0);
 StructuredBuffer<uint> Indices : register(t1, space0);
 StructuredBuffer<Vertex> Vertices : register(t2, space0);
 
-Texture2D g_texture : register(t3);
+Texture2DArray<float4> g_texture : register(t3);
 
 typedef BuiltInTriangleIntersectionAttributes MyAttributes;
 struct RayPayload
@@ -152,7 +152,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
     
     // Sample the texture
-    float4 sampledColor = g_texture.Load(int3(texcoord*float2(g_sceneCB.textureResources[0].width, g_sceneCB.textureResources[0].height), 0));
+    float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.textureResources[0].width, texcoord.y * g_sceneCB.textureResources[0].height, 0, InstanceID()));
     
     //float3 lightDir = normalize(float3(0.5, -1, -0.2));
     //float normDotDir = dot(triangleNormal, lightDir);
