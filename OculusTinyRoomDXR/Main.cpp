@@ -202,8 +202,7 @@ struct OculusEyeTexture
     }
 };
 
-Texture* textureTest;
-Texture* textureTest1;
+Texture** pTextures;
 // return true to retry later (e.g. after display lost)
 static bool MainLoop(bool retryCreate)
 {
@@ -284,9 +283,15 @@ static bool MainLoop(bool retryCreate)
     }
 
     // Create the room model
+    pTextures = new Texture * [Texture::numTextures];
+    for (int i = 0; i < Texture::numTextures; i++)
+    {
+        pTextures[i] = new Texture(false, 256, 256, (Texture::AutoFill)(i+1));
+    }
     roomScene = new Scene(false);
-    textureTest = new Texture(false, 256, 256, Texture::AUTO_FLOOR);
-    textureTest1 = new Texture(false, 256, 256, Texture::AUTO_WALL);
+    //textureTest = new Texture(false, 256, 256, Texture::AUTO_FLOOR);
+    //textureTest1 = new Texture(false, 256, 256, Texture::AUTO_WALL);
+
     
     // Create camera
     static float Yaw = XM_PI;
@@ -294,8 +299,16 @@ static bool MainLoop(bool retryCreate)
 
     DIRECTX.InitFrame(drawMirror);
 
-    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 0, textureTest->TextureRes);
-    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 1, textureTest1->TextureRes);
+    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 0, textureTest->TextureRes);
+    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 1, textureTest1->TextureRes);
+    
+
+
+
+    for (int i = 0; i < Texture::numTextures; i++)
+    {
+        DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], i, pTextures[i]->TextureRes);
+    }
 
     //Texture testTexture(false, 1024, 1024, Texture::AUTO_FLOOR);
 
@@ -391,7 +404,7 @@ static bool MainLoop(bool retryCreate)
                     p.M[0][3], p.M[1][3], p.M[2][3], p.M[3][3]);
                 XMMATRIX prod = XMMatrixMultiply(view, proj);
 
-                DIRECTX.DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
+                roomScene->DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
                 DIRECTX.CopyRaytracingOutputToBackbuffer(pEyeRenderTexture[eye]->GetD3DColorResource(), pEyeRenderTexture[eye]->GetD3DDepthResource());
 
                 resBar = CD3DX12_RESOURCE_BARRIER::Transition(pEyeRenderTexture[eye]->GetD3DColorResource(),

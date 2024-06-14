@@ -20,7 +20,7 @@ struct Viewport
     float bottom;
 };
 
-struct TextureResource
+struct Material
 {
     uint id;
     uint width;
@@ -31,7 +31,7 @@ struct SceneConstantBuffer
 {
     float4x4 projectionToWorld;
     float4 eyePosition;  
-    TextureResource textureResources[1];
+    Material textureResources[6];
 };
 
 struct Vertex
@@ -165,6 +165,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 
     // Convert to integer mip level (rounding to the nearest integer)
     int mipLevel = (int) round(lod);
+    
     
     // Sample the texture
     float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.textureResources[0].width, texcoord.y * g_sceneCB.textureResources[0].height, InstanceID(), 0));

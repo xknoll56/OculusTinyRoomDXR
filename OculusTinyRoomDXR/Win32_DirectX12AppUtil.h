@@ -845,7 +845,7 @@ struct DirectX12
     // Build geometry used in the sample.
     void BuildGeometry()
     {
-        uint32_t indices[] =
+        UINT indices[] =
         {
             0, 2, 1,
             0, 3, 2,
@@ -1122,7 +1122,7 @@ struct DirectX12
         BuildGeometry();
         BuildAccelerationStructures();
         CreateConstantBuffers();
-        CreateTextureArray(256, 256, 5);
+        CreateTextureArray(256, 256, 10, 1);
         BuildShaderTables();
         CreateRaytracingOutputResource(eyeWidth, eyeHeight);
 
@@ -1202,13 +1202,15 @@ struct DirectX12
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Format = textureArrayDesc.Format;
         srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
-        srvDesc.Texture2DArray.MipLevels = 1;
+        srvDesc.Texture2DArray.MipLevels = mipLevels;
         srvDesc.Texture2DArray.ArraySize = textureCount;
 
         D3D12_CPU_DESCRIPTOR_HANDLE texArrayCpuHandle = CbvSrvHandleProvider.AllocCpuHandle();
         Device->CreateShaderResourceView(textureArray.Get(), &srvDesc, texArrayCpuHandle);
         texArrayGpuHandle = CbvSrvHandleProvider.GpuHandleFromCpuHandle(texArrayCpuHandle);
     }
+
+
 
     void CopyTextureSubresource(
         ID3D12GraphicsCommandList* commandList,
@@ -1271,6 +1273,8 @@ struct DirectX12
         commandList->ResourceBarrier(1, &barrier);
     }
 
+
+
     inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource** ppResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, const wchar_t* resourceName = nullptr)
     {
         auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
@@ -1299,7 +1303,7 @@ struct DirectX12
         D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
         geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
         geometryDesc.Triangles.IndexBuffer = m_indexBuffer.resource->GetGPUVirtualAddress();
-        geometryDesc.Triangles.IndexCount = static_cast<UINT>(m_indexBuffer.resource->GetDesc().Width) / sizeof(uint16_t);
+        geometryDesc.Triangles.IndexCount = static_cast<UINT>(m_indexBuffer.resource->GetDesc().Width) / sizeof(UINT);
         geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
         geometryDesc.Triangles.Transform3x4 = 0;
         geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
@@ -1946,50 +1950,7 @@ struct DirectX12
     }
 
 
-    void DoRaytracing(XMMATRIX projectionToWorld, XMVECTOR eyePos)
-    {
-        DirectX12::SwapChainFrameResources& currFrameRes = CurrentFrameResources();
-        //FrameResources& currConstantRes = PerFrameRes[DIRECTX.SwapChainFrameIndex][DIRECTX.ActiveEyeIndex];
 
-        auto DispatchRays = [&](auto* commandList, auto* stateObject, auto* dispatchDesc)
-            {
-                // Since each shader table has only one shader record, the stride is same as the size.
-                dispatchDesc->HitGroupTable.StartAddress = m_hitGroupShaderTable->GetGPUVirtualAddress();
-                dispatchDesc->HitGroupTable.SizeInBytes = m_hitGroupShaderTable->GetDesc().Width;
-                dispatchDesc->HitGroupTable.StrideInBytes = dispatchDesc->HitGroupTable.SizeInBytes;
-                dispatchDesc->MissShaderTable.StartAddress = m_missShaderTable->GetGPUVirtualAddress();
-                dispatchDesc->MissShaderTable.SizeInBytes = m_missShaderTable->GetDesc().Width;
-                dispatchDesc->MissShaderTable.StrideInBytes = dispatchDesc->MissShaderTable.SizeInBytes;
-                dispatchDesc->RayGenerationShaderRecord.StartAddress = m_rayGenShaderTable->GetGPUVirtualAddress();
-                dispatchDesc->RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable->GetDesc().Width;
-                dispatchDesc->Width = eyeWidth;
-                dispatchDesc->Height = eyeHeight;
-                dispatchDesc->Depth = 1;
-                commandList->SetPipelineState1(stateObject);
-                commandList->DispatchRays(dispatchDesc);
-            };
-
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootSignature(m_raytracingGlobalRootSignature.Get());
-
-        m_sceneCB[ActiveContext][SwapChainFrameIndex].projectionToWorld = projectionToWorld;
-        m_sceneCB[ActiveContext][SwapChainFrameIndex].eyePosition = eyePos;
-        m_sceneCB[ActiveContext][SwapChainFrameIndex].textureResources[0].width = 256;
-        m_sceneCB[ActiveContext][SwapChainFrameIndex].textureResources[0].height = 256;
-        // Copy the updated scene constant buffer to GPU.
-        memcpy(&m_mappedConstantData[ActiveContext][SwapChainFrameIndex], &m_sceneCB[ActiveContext][SwapChainFrameIndex], sizeof(m_sceneCB[ActiveContext][SwapChainFrameIndex]));
-        auto cbGpuAddress = m_perFrameConstants[ActiveContext]->GetGPUVirtualAddress() + SwapChainFrameIndex * sizeof(m_mappedConstantData[0][0]);
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootConstantBufferView(GlobalRootSignatureParams::SceneConstantSlot, cbGpuAddress);
-
-        // Bind the heaps, acceleration structure and dispatch rays.    
-        D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
-        currFrameRes.CommandLists[ActiveContext]->SetDescriptorHeaps(1, &CbvSrvHeap);
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputViewSlot, m_raytracingOutputResourceUAVGpuDescriptors[ActiveContext]);
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::OutputDepthSlot, m_raytracingDepthOutputResourceUAVGpuDescriptors[ActiveContext]);
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::VertexBufferSlot, m_indexBuffer.gpuDescriptorHandle);
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootDescriptorTable(GlobalRootSignatureParams::TextureSlot, texArrayGpuHandle);
-        currFrameRes.CommandLists[ActiveContext]->SetComputeRootShaderResourceView(GlobalRootSignatureParams::AccelerationStructureSlot, m_topLevelAccelerationStructure->GetGPUVirtualAddress());
-        DispatchRays(currFrameRes.m_dxrCommandList[ActiveContext].Get(), m_dxrStateObject.Get(), &dispatchDesc);
-    }
 };
 
 // global DX12 state
@@ -2006,6 +1967,7 @@ struct Texture
     UINT MipLevels;
 
     enum AutoFill { AUTO_WHITE = 1, AUTO_WALL, AUTO_FLOOR, AUTO_CEILING, AUTO_GRID, AUTO_GRADE_256 };
+    const static UINT numTextures = 6;
 
 private:
     Texture()
@@ -2218,8 +2180,20 @@ public:
         FillTexture(pix);
         free(pix);
     }
+
+    static void CreateAndCopyTextureSubresource(AutoFill autoFill, UINT width, UINT height, UINT destSubresourceIndex)
+    {
+        Texture* texture = new Texture(false, 256, 256, autoFill);
+        DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final], destSubresourceIndex, texture->TextureRes);
+        //delete(texture);
+    }
 };
 
+struct RTXMaterial
+{
+    UINT TexIndex;
+
+};
 //-----------------------------------------------------
 struct Material
 {
@@ -2466,6 +2440,8 @@ struct TriangleSet
             Vertex(XMFLOAT3(x2, y2, z2), ModifyColor(c, XMFLOAT3(x2, y2, z2)), x2, y2),
             Vertex(XMFLOAT3(x1, y2, z2), ModifyColor(c, XMFLOAT3(x1, y2, z2)), x1, y2));
     }
+
+
 };
 
 //----------------------------------------------------------------------
@@ -2635,6 +2611,52 @@ struct Scene
     {
         if (numModels < MAX_MODELS)
             Models[numModels++] = n;
+    }
+
+    void DoRaytracing(XMMATRIX projectionToWorld, XMVECTOR eyePos)
+    {
+        DirectX12::SwapChainFrameResources& currFrameRes = DIRECTX.CurrentFrameResources();
+        //FrameResources& currConstantRes = PerFrameRes[DIRECTX.SwapChainFrameIndex][DIRECTX.ActiveEyeIndex];
+
+        auto DispatchRays = [&](auto* commandList, auto* stateObject, auto* dispatchDesc)
+            {
+                // Since each shader table has only one shader record, the stride is same as the size.
+                dispatchDesc->HitGroupTable.StartAddress = DIRECTX.m_hitGroupShaderTable->GetGPUVirtualAddress();
+                dispatchDesc->HitGroupTable.SizeInBytes = DIRECTX.m_hitGroupShaderTable->GetDesc().Width;
+                dispatchDesc->HitGroupTable.StrideInBytes = dispatchDesc->HitGroupTable.SizeInBytes;
+                dispatchDesc->MissShaderTable.StartAddress = DIRECTX.m_missShaderTable->GetGPUVirtualAddress();
+                dispatchDesc->MissShaderTable.SizeInBytes = DIRECTX.m_missShaderTable->GetDesc().Width;
+                dispatchDesc->MissShaderTable.StrideInBytes = dispatchDesc->MissShaderTable.SizeInBytes;
+                dispatchDesc->RayGenerationShaderRecord.StartAddress = DIRECTX.m_rayGenShaderTable->GetGPUVirtualAddress();
+                dispatchDesc->RayGenerationShaderRecord.SizeInBytes = DIRECTX.m_rayGenShaderTable->GetDesc().Width;
+                dispatchDesc->Width = DIRECTX.eyeWidth;
+                dispatchDesc->Height = DIRECTX.eyeHeight;
+                dispatchDesc->Depth = 1;
+                commandList->SetPipelineState1(stateObject);
+                commandList->DispatchRays(dispatchDesc);
+            };
+
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootSignature(DIRECTX.m_raytracingGlobalRootSignature.Get());
+
+        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].projectionToWorld = projectionToWorld;
+        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].eyePosition = eyePos;
+        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].width = 256;
+        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].height = 256;
+        // Copy the updated scene constant buffer to GPU.
+        memcpy(&DIRECTX.m_mappedConstantData[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], &DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], 
+            sizeof(DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex]));
+        auto cbGpuAddress = DIRECTX.m_perFrameConstants[DIRECTX.ActiveContext]->GetGPUVirtualAddress() + DIRECTX.SwapChainFrameIndex * sizeof(DIRECTX.m_mappedConstantData[0][0]);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootConstantBufferView(DirectX12::GlobalRootSignatureParams::SceneConstantSlot, cbGpuAddress);
+
+        // Bind the heaps, acceleration structure and dispatch rays.    
+        D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetDescriptorHeaps(1, &DIRECTX.CbvSrvHeap);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputViewSlot, DIRECTX.m_raytracingOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputDepthSlot, DIRECTX.m_raytracingDepthOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, DIRECTX.m_indexBuffer.gpuDescriptorHandle);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::TextureSlot, DIRECTX.texArrayGpuHandle);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootShaderResourceView(DirectX12::GlobalRootSignatureParams::AccelerationStructureSlot, DIRECTX.m_topLevelAccelerationStructure->GetGPUVirtualAddress());
+       DispatchRays(currFrameRes.m_dxrCommandList[DIRECTX.ActiveContext].Get(), DIRECTX.m_dxrStateObject.Get(), &dispatchDesc);
     }
 
     void Render(XMMATRIX* projView, float R, float G, float B, float A, bool standardUniforms)
