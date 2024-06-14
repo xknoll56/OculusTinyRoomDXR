@@ -294,8 +294,8 @@ static bool MainLoop(bool retryCreate)
 
     DIRECTX.InitFrame(drawMirror);
 
-    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[2], 0, textureTest->TextureRes);
-    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[2], 1, textureTest1->TextureRes);
+    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 0, textureTest->TextureRes);
+    DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 1, textureTest1->TextureRes);
 
     //Texture testTexture(false, 1024, 1024, Texture::AUTO_FLOOR);
 

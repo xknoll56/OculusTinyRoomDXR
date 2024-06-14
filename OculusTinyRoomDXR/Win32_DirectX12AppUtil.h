@@ -746,7 +746,7 @@ struct DirectX12
         // Shader config
         // Defines the maximum sizes in bytes for the ray payload and attribute structure.
         auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
-        UINT payloadSize = 5 * sizeof(float);   // float4 color, float depth
+        UINT payloadSize = 11 * sizeof(float);   // float4 color, float depth
         UINT attributeSize = 2 * sizeof(float); // float2 barycentrics
         shaderConfig->Config(payloadSize, attributeSize);
 
@@ -1169,7 +1169,7 @@ struct DirectX12
         ThrowIfFailed(m_perFrameConstants[1]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[1])));
     }
 
-    void CreateTextureArray(UINT maxWidth, UINT maxHeight, UINT textureCount)
+    void CreateTextureArray(UINT maxWidth, UINT maxHeight, UINT textureCount, UINT mipLevels = 9)
     {
         // Create texture array resource
         D3D12_RESOURCE_DESC textureArrayDesc = {};
@@ -1178,7 +1178,7 @@ struct DirectX12
         textureArrayDesc.Width = maxWidth;
         textureArrayDesc.Height = maxHeight;
         textureArrayDesc.DepthOrArraySize = textureCount;
-        textureArrayDesc.MipLevels = 1;
+        textureArrayDesc.MipLevels = mipLevels;
         textureArrayDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         textureArrayDesc.SampleDesc.Count = 1;
         textureArrayDesc.SampleDesc.Quality = 0;
@@ -1188,7 +1188,7 @@ struct DirectX12
 
         CD3DX12_HEAP_PROPERTIES heapProperties(D3D12_HEAP_TYPE_DEFAULT);
         CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(
-            DXGI_FORMAT_R8G8B8A8_UNORM, maxWidth, maxHeight, textureCount, 1);
+            DXGI_FORMAT_R8G8B8A8_UNORM, maxWidth, maxHeight, textureCount, mipLevels);
 
         Device->CreateCommittedResource(
             &heapProperties,
@@ -1215,21 +1215,13 @@ struct DirectX12
         UINT destSubresourceIndex,
         ID3D12Resource* srcResource)
     {
-        // Describe the destination subresource (array slice in the texture array)
-        D3D12_TEXTURE_COPY_LOCATION destLocation = {};
-        destLocation.pResource = textureArray.Get();
+        // Describe the destination texture array
         D3D12_RESOURCE_DESC destDesc = textureArray->GetDesc();
-        UINT totalSubresources = destDesc.DepthOrArraySize * destDesc.MipLevels;
-        destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        UINT adjustedDestSubresourceIndex = destDesc.MipLevels* destSubresourceIndex;
-        destLocation.SubresourceIndex = adjustedDestSubresourceIndex;
+        UINT destMipLevels = destDesc.MipLevels;
 
-        // Describe the source subresource (individual texture)
-        D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
-        srcLocation.pResource = srcResource;
-        srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        srcLocation.SubresourceIndex = 0; // Assuming we are copying the first (and only) subresource
-
+        // Describe the source texture
+        D3D12_RESOURCE_DESC srcDesc = srcResource->GetDesc();
+        UINT srcMipLevels = srcDesc.MipLevels;
 
         // Transition source resource state to COPY_SOURCE
         CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1245,10 +1237,26 @@ struct DirectX12
             D3D12_RESOURCE_STATE_COPY_DEST);
         commandList->ResourceBarrier(1, &barrier);
 
-        // Copy the texture data
-        commandList->CopyTextureRegion(&destLocation, 0, 0, 0, &srcLocation, nullptr);
+        // Loop through each mip level of the source and copy to corresponding mip level of destination
+        for (UINT mipLevel = 0; mipLevel < min(srcMipLevels, destMipLevels); ++mipLevel)
+        {
+            // Describe the destination subresource (specific mip level of the array slice)
+            D3D12_TEXTURE_COPY_LOCATION destLocation = {};
+            destLocation.pResource = textureArray.Get();
+            destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            destLocation.SubresourceIndex = destSubresourceIndex * destMipLevels + mipLevel;
 
-        // Transition destination resource state to NON_PIXEL_SHADER_RESOURCE for raytracing shader
+            // Describe the source subresource (specific mip level of the texture)
+            D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
+            srcLocation.pResource = srcResource;
+            srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            srcLocation.SubresourceIndex = mipLevel;
+
+            // Copy the texture data
+            commandList->CopyTextureRegion(&destLocation, 0, 0, 0, &srcLocation, nullptr);
+        }
+
+        // Transition destination resource state back to NON_PIXEL_SHADER_RESOURCE for raytracing shader
         barrier = CD3DX12_RESOURCE_BARRIER::Transition(
             textureArray.Get(),
             D3D12_RESOURCE_STATE_COPY_DEST,
@@ -1261,7 +1269,6 @@ struct DirectX12
             D3D12_RESOURCE_STATE_COPY_SOURCE,
             D3D12_RESOURCE_STATE_COMMON);
         commandList->ResourceBarrier(1, &barrier);
-
     }
 
     inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource** ppResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, const wchar_t* resourceName = nullptr)
@@ -2061,8 +2068,7 @@ public:
 
     Texture(bool rendertarget, int sizeW, int sizeH, AutoFill autoFillData = (AutoFill)0, int sampleCount = 1)
     {
-        //Init(sizeW, sizeH, rendertarget, autoFillData ? 8 : 1, sampleCount);
-        Init(sizeW, sizeH, rendertarget, 1, sampleCount);
+        Init(sizeW, sizeH, rendertarget, autoFillData ? 8 : 1, sampleCount);
         if (!rendertarget && autoFillData)
             AutoFillTexture(autoFillData);
     }

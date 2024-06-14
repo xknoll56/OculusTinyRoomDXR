@@ -59,6 +59,8 @@ struct RayPayload
 {
     float4 color;
     float depth;
+    float3 rayOrigin;
+    float3 rayDirection;
 };
 
 // Generate a ray in world space for a camera pixel corresponding to an index from the dispatched 2D grid.
@@ -97,7 +99,7 @@ void MyRaygenShader()
     // TMin should be kept small to prevent missing geometry at close contact areas.
     ray.TMin = 0.001;
     ray.TMax = 10000.0;
-    RayPayload payload = { float4(0, 0, 0, 0), 0 };
+    RayPayload payload = { float4(0, 0, 0, 0), 0, ray.Origin, ray.Direction };
     TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
 
     // Write the raytraced color to the output texture.
@@ -151,16 +153,24 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     // Perform wrap manually
     texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
     
+    // Calculate the distance from the camera/eye to the intersection point
+    float3 hitPoint = payload.rayOrigin + RayTCurrent() * payload.rayDirection;
+    float distance = length(hitPoint - g_sceneCB.eyePosition);
+
+    // Estimate LOD based on distance
+    float lod = log2(distance);
+
+    // Clamp LOD to the valid range of mip levels (assume maximum level is 9 for this example)
+    lod = clamp(lod, 0.0, 1.0);
+
+    // Convert to integer mip level (rounding to the nearest integer)
+    int mipLevel = (int) round(lod);
+    
     // Sample the texture
     float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.textureResources[0].width, texcoord.y * g_sceneCB.textureResources[0].height, InstanceID(), 0));
     
-    //float3 lightDir = normalize(float3(0.5, -1, -0.2));
-    //float normDotDir = dot(triangleNormal, lightDir);
-    //float3 basecolor = saturate(normDotDir * sampledColor); // Clamping color values to [0, 1]
-    //basecolor = max(basecolor, float3(0.3, 0.3, 0.3)); // Applying minimum ambient value of 0.3
     payload.color = sampledColor;
-    //payload.color = float4(1, 1, 1, 1);
-    
+
      // Calculate depth as the distance from the eye position to the hit point
     payload.depth = RayTCurrent();
 }
