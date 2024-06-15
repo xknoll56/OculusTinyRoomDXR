@@ -200,6 +200,17 @@ enum DrawContext
     DrawContext_Count,
 };
 
+static void ThrowIfFailed(HRESULT hr, const wchar_t* message = L"")
+{
+
+    if (hr != S_OK)
+    {
+        printf("%s\n", message);
+        exit(1);
+    }
+}
+
+
 //---------------------------------------------------------------------
 struct DirectX12
 {
@@ -217,24 +228,7 @@ struct DirectX12
         Viewport stencil;
     };
 
-    struct TextureResource
-    {
-        UINT id;
-        UINT width;
-        UINT height;
-    };
 
-    struct InstanceData
-    {
-        UINT id;
-    };
-
-    struct alignas(256) SceneConstantBuffer
-    {
-        XMMATRIX projectionToWorld;
-        XMVECTOR eyePosition;
-        TextureResource textureResources[1];
-    };
 
     struct float3 
     {
@@ -252,8 +246,7 @@ struct DirectX12
     };
 
 
-    SceneConstantBuffer* m_mappedConstantData[2];
-    ComPtr<ID3D12Resource>       m_perFrameConstants[2];
+
 
 
     HWND                        Window;
@@ -286,15 +279,7 @@ struct DirectX12
     //UINT m_descriptorsAllocated;
     //UINT m_descriptorSize;
 
-    // Geometry
-    struct D3DBuffer
-    {
-        ComPtr<ID3D12Resource> resource;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpuDescriptorHandle;
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuDescriptorHandle;
-    };
-    D3DBuffer m_indexBuffer;
-    D3DBuffer m_vertexBuffer;
+
 
     // Acceleration structure
     ComPtr<ID3D12Resource> m_accelerationStructure;
@@ -337,7 +322,7 @@ struct DirectX12
     UINT                        ActiveEyeIndex;
     DrawContext                 ActiveContext;
 
-    SceneConstantBuffer m_sceneCB[2][SwapChainNumFrames];
+    
 
     ComPtr<ID3D12Resource> textureArray;
     D3D12_GPU_DESCRIPTOR_HANDLE texArrayGpuHandle;
@@ -443,6 +428,59 @@ struct DirectX12
         }
     }
 
+    // Geometry
+    struct D3DBuffer
+    {
+        ComPtr<ID3D12Resource> resource;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuDescriptorHandle;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuDescriptorHandle;
+    };
+
+    inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource** ppResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, const wchar_t* resourceName = nullptr)
+    {
+        auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+        auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        ThrowIfFailed(pDevice->CreateCommittedResource(
+            &uploadHeapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &bufferDesc,
+            initialResourceState,
+            nullptr,
+            IID_PPV_ARGS(ppResource)));
+        if (resourceName)
+        {
+            (*ppResource)->SetName(resourceName);
+        }
+    }
+
+    // Create SRV for a buffer.
+    UINT CreateBufferSRV(D3DBuffer* buffer, UINT numElements, UINT elementSize)
+    {
+
+        // SRV
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Buffer.NumElements = numElements;
+        if (elementSize == 0)
+        {
+            srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+            srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+            srvDesc.Buffer.StructureByteStride = 0;
+        }
+        else
+        {
+            srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+            srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+            srvDesc.Buffer.StructureByteStride = elementSize;
+        }
+        UINT descriptorIndex;
+        buffer->cpuDescriptorHandle = CbvSrvHandleProvider.AllocCpuHandle(&descriptorIndex);
+        Device->CreateShaderResourceView(buffer->resource.Get(), &srvDesc, buffer->cpuDescriptorHandle);
+        buffer->gpuDescriptorHandle = CbvSrvHandleProvider.GpuHandleFromCpuHandle(buffer->cpuDescriptorHandle);
+        return descriptorIndex;
+    }
+
     // Returns bool whether the device supports DirectX Raytracing tier.
     inline bool IsDirectXRaytracingSupported(IDXGIAdapter1* adapter)
     {
@@ -485,15 +523,6 @@ struct DirectX12
         };
     };
 
-    static void ThrowIfFailed(HRESULT hr, const wchar_t* message = L"")
-    {
-        
-        if (hr != S_OK)
-        {
-            printf("%s\n", message);
-            exit(1);
-        }
-    }
 
     void SerializeAndCreateRaytracingRootSignature(D3D12_ROOT_SIGNATURE_DESC& desc, ComPtr<ID3D12RootSignature>* rootSig)
     {
@@ -814,112 +843,6 @@ struct DirectX12
     }
 
 
-    // Create SRV for a buffer.
-    UINT CreateBufferSRV(D3DBuffer* buffer, UINT numElements, UINT elementSize)
-    {
-
-        // SRV
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Buffer.NumElements = numElements;
-        if (elementSize == 0)
-        {
-            srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-            srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
-            srvDesc.Buffer.StructureByteStride = 0;
-        }
-        else
-        {
-            srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-            srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-            srvDesc.Buffer.StructureByteStride = elementSize;
-        }
-        UINT descriptorIndex;
-        buffer->cpuDescriptorHandle = CbvSrvHandleProvider.AllocCpuHandle(&descriptorIndex);
-        Device->CreateShaderResourceView(buffer->resource.Get(), &srvDesc, buffer->cpuDescriptorHandle);
-        buffer->gpuDescriptorHandle = CbvSrvHandleProvider.GpuHandleFromCpuHandle(buffer->cpuDescriptorHandle);
-        return descriptorIndex;
-    }
-
-    // Build geometry used in the sample.
-    void BuildGeometry()
-    {
-        UINT indices[] =
-        {
-            0, 2, 1,
-            0, 3, 2,
-
-            4, 5, 6,
-            4, 6, 7,
-
-            8, 9, 10,
-            8, 10, 11,
-
-            12, 14, 13,
-            12, 15, 14,
-
-            16, 18, 17,
-            16, 19, 18,
-
-            20, 21, 22,
-            20, 22, 23,
-        };
-
-
-        RTXVertex vertices[] =
-        {
-            // Back face
-            { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 0.0f},
-            { 0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  1.0f, 0.0f},
-            { 0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,   1.0f, 1.0f},
-            { -0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 1.0f},
-
-            // Front face
-            { -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f , 0.0f, 0.0f},
-            { 0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,1.0f, 0.0f},
-            { 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f   ,1.0f, 1.0f},
-            { -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,0.0f, 1.0f},
-
-            // Right face
-            { 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
-            { 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
-            { 0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
-            { 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
-
-            // Left face
-            { -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
-            { -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
-            { -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
-            { -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
-
-            // Top face
-            { -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f , 0.0f, 0.0f},
-            { 0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f  ,1.0f, 0.0f},
-            { 0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f   ,1.0f, 1.0f},
-            { -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f  ,0.0f, 1.0f},
-
-            // Bottom face
-            { -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f , 0.0f, 0.0f},
-            { 0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f  ,1.0f, 0.0f},
-            { 0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f   ,1.0f, 1.0f},
-            { -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f  ,0.0f, 1.0f},
-        };
-
-        AllocateUploadBuffer(Device, vertices, sizeof(vertices), &m_vertexBuffer.resource);
-        AllocateUploadBuffer(Device, indices, sizeof(indices), &m_indexBuffer.resource);
-
-        // Vertex buffer is passed to the shader along with index buffer as a descriptor table.
-        // Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
-        UINT descriptorIndexIB = CreateBufferSRV(&m_indexBuffer, sizeof(indices) / 4, 0);
-        UINT descriptorIndexVB = CreateBufferSRV(&m_vertexBuffer, ARRAYSIZE(vertices), sizeof(vertices[0]));
-        if (!(descriptorIndexVB == descriptorIndexIB + 1, L"Vertex Buffer descriptor index must follow that of Index Buffer descriptor index!"))
-            exit(1);
-
-    }
-
-
-
 
     bool InitDevice(int vpW, int vpH, const LUID* pLuid, DXGI_FORMAT depthFormat, int eyeMsaaRate, bool windowed = true, UINT eyeWidth=1024, UINT eyeHeight=768)
     {
@@ -1119,9 +1042,9 @@ struct DirectX12
         CreateRootSignatures();
         CreateRaytracingPipelineStateObject();
         //CreateRaytracingDescriptorHeap();
-        BuildGeometry();
-        BuildAccelerationStructures();
-        CreateConstantBuffers();
+        //BuildGeometry();
+        //BuildAccelerationStructures();
+        //CreateConstantBuffers();
         CreateTextureArray(256, 256, 10, 1);
         BuildShaderTables();
         CreateRaytracingOutputResource(eyeWidth, eyeHeight);
@@ -1129,45 +1052,7 @@ struct DirectX12
         return true;
     }
 
-    // Create constant buffers.
-    void CreateConstantBuffers()
-    {
 
-        auto frameCount = SwapChainNumFrames;
-
-        // Create the constant buffer memory and map the CPU and GPU addresses
-        const D3D12_HEAP_PROPERTIES uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-
-        // Allocate one constant buffer per frame, since it gets updated every frame.
-        size_t cbSize = frameCount * sizeof(SceneConstantBuffer);
-        const D3D12_RESOURCE_DESC constantBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(cbSize);
-
-        ThrowIfFailed(Device->CreateCommittedResource(
-            &uploadHeapProperties,
-            D3D12_HEAP_FLAG_NONE,
-            &constantBufferDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&m_perFrameConstants[0])));
-
-        // Map the constant buffer and cache its heap pointers.
-        // We don't unmap this until the app closes. Keeping buffer mapped for the lifetime of the resource is okay.
-        CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
-        ThrowIfFailed(m_perFrameConstants[0]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[0])));
-
-        ThrowIfFailed(Device->CreateCommittedResource(
-            &uploadHeapProperties,
-            D3D12_HEAP_FLAG_NONE,
-            &constantBufferDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&m_perFrameConstants[1])));
-
-        // Map the constant buffer and cache its heap pointers.
-        // We don't unmap this until the app closes. Keeping buffer mapped for the lifetime of the resource is okay.
-         readRange = CD3DX12_RANGE(0, 0);        // We do not intend to read from this resource on the CPU.
-        ThrowIfFailed(m_perFrameConstants[1]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[1])));
-    }
 
     void CreateTextureArray(UINT maxWidth, UINT maxHeight, UINT textureCount, UINT mipLevels = 9)
     {
@@ -1275,130 +1160,9 @@ struct DirectX12
 
 
 
-    inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource** ppResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, const wchar_t* resourceName = nullptr)
-    {
-        auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-        auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-        ThrowIfFailed(pDevice->CreateCommittedResource(
-            &uploadHeapProperties,
-            D3D12_HEAP_FLAG_NONE,
-            &bufferDesc,
-            initialResourceState,
-            nullptr,
-            IID_PPV_ARGS(ppResource)));
-        if (resourceName)
-        {
-            (*ppResource)->SetName(resourceName);
-        }
-    }
 
 
-    // Build acceleration structures needed for raytracing.
-    void BuildAccelerationStructures()
-    {
 
-        // Reset the command list for the acceleration structure construction.
-        CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
-
-        D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
-        geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geometryDesc.Triangles.IndexBuffer = m_indexBuffer.resource->GetGPUVirtualAddress();
-        geometryDesc.Triangles.IndexCount = static_cast<UINT>(m_indexBuffer.resource->GetDesc().Width) / sizeof(UINT);
-        geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
-        geometryDesc.Triangles.Transform3x4 = 0;
-        geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geometryDesc.Triangles.VertexCount = static_cast<UINT>(m_vertexBuffer.resource->GetDesc().Width) / (sizeof(RTXVertex));
-        geometryDesc.Triangles.VertexBuffer.StartAddress = m_vertexBuffer.resource->GetGPUVirtualAddress();
-        geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(RTXVertex));
-
-        // Mark the geometry as opaque. 
-        // PERFORMANCE TIP: mark geometry as opaque whenever applicable as it can enable important ray processing optimizations.
-        // Note: When rays encounter opaque geometry an any hit shader will not be executed whether it is present or not.
-        geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-
-        // Get required sizes for an acceleration structure.
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS topLevelInputs = {};
-        topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        topLevelInputs.Flags = buildFlags;
-        topLevelInputs.NumDescs = 2;
-        topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo = {};
-        m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&topLevelInputs, &topLevelPrebuildInfo);
-        if (!(topLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
-            exit(1);
-
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = topLevelInputs;
-        bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-        bottomLevelInputs.pGeometryDescs = &geometryDesc;
-        m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
-        if (!(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
-            exit(1);
-
-        ID3D12Resource* scratchResource;
-        AllocateUAVBuffer(Device, max(topLevelPrebuildInfo.ScratchDataSizeInBytes, bottomLevelPrebuildInfo.ScratchDataSizeInBytes), &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
-
-        // Allocate resources for acceleration structures.
-        // Acceleration structures can only be placed in resources that are created in the default heap (or custom heap equivalent). 
-        // Default heap is OK since the application doesn’t need CPU read/write access to them. 
-        // The resources that will contain acceleration structures must be created in the state D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, 
-        // and must have resource flag D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. The ALLOW_UNORDERED_ACCESS requirement simply acknowledges both: 
-        //  - the system will be doing this type of access in its implementation of acceleration structure builds behind the scenes.
-        //  - from the app point of view, synchronization of writes/reads to acceleration structures is accomplished using UAV barriers.
-        {
-            D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
-
-            AllocateUAVBuffer(Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
-            AllocateUAVBuffer(Device, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_topLevelAccelerationStructure, initialResourceState, L"TopLevelAccelerationStructure");
-        }
-
-        ID3D12Resource* instanceDescs;
-        D3D12_RAYTRACING_INSTANCE_DESC instanceDescsArray[2] = {};
-        for (int i = 0; i < 2; ++i) {
-            instanceDescsArray[i].Transform[0][0] = instanceDescsArray[i].Transform[1][1] = instanceDescsArray[i].Transform[2][2] = 1;
-            instanceDescsArray[i].InstanceMask = 1;
-            instanceDescsArray[i].InstanceID = i; // Assign unique instance IDs
-            instanceDescsArray[i].AccelerationStructure = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
-        }
-        instanceDescsArray->Transform[0][3] = 3.0f;
-        AllocateUploadBuffer(Device, instanceDescsArray, sizeof(instanceDescsArray), &instanceDescs, L"InstanceDescs");
-
-        // Bottom Level Acceleration Structure desc
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
-        {
-            bottomLevelBuildDesc.Inputs = bottomLevelInputs;
-            bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
-            bottomLevelBuildDesc.DestAccelerationStructureData = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
-        }
-
-        // Top Level Acceleration Structure desc
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc = {};
-        {
-            topLevelInputs.InstanceDescs = instanceDescs->GetGPUVirtualAddress();
-            topLevelBuildDesc.Inputs = topLevelInputs;
-            topLevelBuildDesc.DestAccelerationStructureData = m_topLevelAccelerationStructure->GetGPUVirtualAddress();
-            topLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
-        }
-
-        auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
-            {
-                raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
-                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_bottomLevelAccelerationStructure.Get());
-                CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
-                raytracingCommandList->BuildRaytracingAccelerationStructure(&topLevelBuildDesc, 0, nullptr);
-            };
-
-        // Build acceleration structure.
-        BuildAccelerationStructure(CurrentFrameResources().m_dxrCommandList[DrawContext_Final].Get());
-
-        // Kick off acceleration structure construction.
-        SubmitCommandList(DrawContext_Final);
-
-        // Wait for GPU to finish as the locally created temporary GPU resources will get released once we go out of scope.
-        WaitForGpu();
-    }
 
     class GpuUploadBuffer
     {
@@ -2444,6 +2208,38 @@ struct TriangleSet
 
 };
 
+struct Transform
+{
+    float transform[3][4];
+
+    Transform()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 4; j++)
+            {
+                if (i == j)
+                    transform[i][j] = 1;
+                else
+                    transform[i][j] = 0;
+            }
+        }
+    }
+
+    void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
+    {
+        // Set position
+        transform[0][3] = (x1 + x2) * 0.5f;
+        transform[1][3] = (y1 + y2) * 0.5f;
+        transform[2][3] = (z1 + z2) * 0.5f;
+
+        // Set scale
+        transform[0][0] = fabsf(x2 - x1);
+        transform[1][1] = fabsf(y2 - y1);
+        transform[2][2] = fabsf(z2 - z1);
+    }
+};
+
 //----------------------------------------------------------------------
 struct Model
 {
@@ -2612,6 +2408,211 @@ struct Scene
         if (numModels < MAX_MODELS)
             Models[numModels++] = n;
     }
+    struct TextureResource
+    {
+        UINT id;
+        UINT width;
+        UINT height;
+    };
+
+    struct alignas(256) SceneConstantBuffer
+    {
+        XMMATRIX projectionToWorld;
+        XMVECTOR eyePosition;
+        TextureResource textureResources[1];
+    };
+
+    SceneConstantBuffer* m_mappedConstantData[2];
+    ComPtr<ID3D12Resource>       m_perFrameConstants[2];
+    SceneConstantBuffer m_sceneCB[2][DIRECTX.SwapChainNumFrames];
+
+    DirectX12::D3DBuffer m_indexBuffer;
+    DirectX12::D3DBuffer m_vertexBuffer;
+
+
+    // Build geometry used in the sample.
+    void BuildGeometry()
+    {
+        UINT indices[] =
+        {
+            0, 2, 1,
+            0, 3, 2,
+
+            4, 5, 6,
+            4, 6, 7,
+
+            8, 9, 10,
+            8, 10, 11,
+
+            12, 14, 13,
+            12, 15, 14,
+
+            16, 18, 17,
+            16, 19, 18,
+
+            20, 21, 22,
+            20, 22, 23,
+        };
+
+
+        DirectX12::RTXVertex vertices[] =
+        {
+            // Back face
+            { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 0.0f},
+            { 0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  1.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,   1.0f, 1.0f},
+            { -0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 1.0f},
+
+            // Front face
+            { -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f , 0.0f, 0.0f},
+            { 0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f   ,1.0f, 1.0f},
+            { -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,0.0f, 1.0f},
+
+            // Right face
+            { 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
+            { 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
+
+            // Left face
+            { -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
+            { -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+            { -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
+
+            // Top face
+            { -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f  ,0.0f, 1.0f},
+
+            // Bottom face
+            { -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f  ,0.0f, 1.0f},
+        };
+
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, vertices, sizeof(vertices), &m_vertexBuffer.resource);
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, indices, sizeof(indices), &m_indexBuffer.resource);
+
+        // Vertex buffer is passed to the shader along with index buffer as a descriptor table.
+        // Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
+        UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&m_indexBuffer, sizeof(indices) / 4, 0);
+        UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&m_vertexBuffer, ARRAYSIZE(vertices), sizeof(vertices[0]));
+        if (!(descriptorIndexVB == descriptorIndexIB + 1, L"Vertex Buffer descriptor index must follow that of Index Buffer descriptor index!"))
+            exit(1);
+    }
+
+    // Build acceleration structures needed for raytracing.
+    void BuildAccelerationStructures()
+    {
+
+        // Reset the command list for the acceleration structure construction.
+        DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
+
+        D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
+        geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geometryDesc.Triangles.IndexBuffer = m_indexBuffer.resource->GetGPUVirtualAddress();
+        geometryDesc.Triangles.IndexCount = static_cast<UINT>(m_indexBuffer.resource->GetDesc().Width) / sizeof(UINT);
+        geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+        geometryDesc.Triangles.Transform3x4 = 0;
+        geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geometryDesc.Triangles.VertexCount = static_cast<UINT>(m_vertexBuffer.resource->GetDesc().Width) / (sizeof(DirectX12::RTXVertex));
+        geometryDesc.Triangles.VertexBuffer.StartAddress = m_vertexBuffer.resource->GetGPUVirtualAddress();
+        geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(DirectX12::RTXVertex));
+
+        // Mark the geometry as opaque. 
+        // PERFORMANCE TIP: mark geometry as opaque whenever applicable as it can enable important ray processing optimizations.
+        // Note: When rays encounter opaque geometry an any hit shader will not be executed whether it is present or not.
+        geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+
+        // Get required sizes for an acceleration structure.
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS topLevelInputs = {};
+        topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        topLevelInputs.Flags = buildFlags;
+        topLevelInputs.NumDescs = 2;
+        topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo = {};
+        DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&topLevelInputs, &topLevelPrebuildInfo);
+        if (!(topLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
+            exit(1);
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = topLevelInputs;
+        bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        bottomLevelInputs.pGeometryDescs = &geometryDesc;
+        DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
+        if (!(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
+            exit(1);
+
+        ID3D12Resource* scratchResource;
+        DIRECTX.AllocateUAVBuffer(DIRECTX.Device, max(topLevelPrebuildInfo.ScratchDataSizeInBytes, bottomLevelPrebuildInfo.ScratchDataSizeInBytes), &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
+
+        // Allocate resources for acceleration structures.
+        // Acceleration structures can only be placed in resources that are created in the default heap (or custom heap equivalent). 
+        // Default heap is OK since the application doesn’t need CPU read/write access to them. 
+        // The resources that will contain acceleration structures must be created in the state D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, 
+        // and must have resource flag D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. The ALLOW_UNORDERED_ACCESS requirement simply acknowledges both: 
+        //  - the system will be doing this type of access in its implementation of acceleration structure builds behind the scenes.
+        //  - from the app point of view, synchronization of writes/reads to acceleration structures is accomplished using UAV barriers.
+        {
+            D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &DIRECTX.m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, &DIRECTX.m_topLevelAccelerationStructure, initialResourceState, L"TopLevelAccelerationStructure");
+        }
+
+        ID3D12Resource* instanceDescs;
+        D3D12_RAYTRACING_INSTANCE_DESC instanceDescsArray[2] = {};
+        for (int i = 0; i < 2; ++i) {
+            instanceDescsArray[i].Transform[0][0] = instanceDescsArray[i].Transform[1][1] = instanceDescsArray[i].Transform[2][2] = 1;
+            instanceDescsArray[i].InstanceMask = 1;
+            instanceDescsArray[i].InstanceID = i; // Assign unique instance IDs
+            instanceDescsArray[i].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+        }
+        instanceDescsArray->Transform[0][3] = 3.0f;
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, sizeof(instanceDescsArray), &instanceDescs, L"InstanceDescs");
+
+        // Bottom Level Acceleration Structure desc
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
+        {
+            bottomLevelBuildDesc.Inputs = bottomLevelInputs;
+            bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
+            bottomLevelBuildDesc.DestAccelerationStructureData = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+        }
+
+        // Top Level Acceleration Structure desc
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc = {};
+        {
+            topLevelInputs.InstanceDescs = instanceDescs->GetGPUVirtualAddress();
+            topLevelBuildDesc.Inputs = topLevelInputs;
+            topLevelBuildDesc.DestAccelerationStructureData = DIRECTX.m_topLevelAccelerationStructure->GetGPUVirtualAddress();
+            topLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
+        }
+
+        auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
+            {
+                raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
+                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(DIRECTX.m_bottomLevelAccelerationStructure.Get());
+                DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
+                raytracingCommandList->BuildRaytracingAccelerationStructure(&topLevelBuildDesc, 0, nullptr);
+            };
+
+        // Build acceleration structure.
+        BuildAccelerationStructure(DIRECTX.CurrentFrameResources().m_dxrCommandList[DrawContext_Final].Get());
+
+        // Kick off acceleration structure construction.
+        DIRECTX.SubmitCommandList(DrawContext_Final);
+
+        // Wait for GPU to finish as the locally created temporary GPU resources will get released once we go out of scope.
+        DIRECTX.WaitForGpu();
+    }
+
+
 
     void DoRaytracing(XMMATRIX projectionToWorld, XMVECTOR eyePos)
     {
@@ -2638,14 +2639,14 @@ struct Scene
 
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootSignature(DIRECTX.m_raytracingGlobalRootSignature.Get());
 
-        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].projectionToWorld = projectionToWorld;
-        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].eyePosition = eyePos;
-        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].width = 256;
-        DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].height = 256;
+        m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].projectionToWorld = projectionToWorld;
+        m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].eyePosition = eyePos;
+        m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].width = 256;
+        m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].height = 256;
         // Copy the updated scene constant buffer to GPU.
-        memcpy(&DIRECTX.m_mappedConstantData[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], &DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], 
-            sizeof(DIRECTX.m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex]));
-        auto cbGpuAddress = DIRECTX.m_perFrameConstants[DIRECTX.ActiveContext]->GetGPUVirtualAddress() + DIRECTX.SwapChainFrameIndex * sizeof(DIRECTX.m_mappedConstantData[0][0]);
+        memcpy(&m_mappedConstantData[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], &m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], 
+            sizeof(m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex]));
+        auto cbGpuAddress = m_perFrameConstants[DIRECTX.ActiveContext]->GetGPUVirtualAddress() + DIRECTX.SwapChainFrameIndex * sizeof(m_mappedConstantData[0][0]);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootConstantBufferView(DirectX12::GlobalRootSignatureParams::SceneConstantSlot, cbGpuAddress);
 
         // Bind the heaps, acceleration structure and dispatch rays.    
@@ -2653,7 +2654,7 @@ struct Scene
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetDescriptorHeaps(1, &DIRECTX.CbvSrvHeap);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputViewSlot, DIRECTX.m_raytracingOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputDepthSlot, DIRECTX.m_raytracingDepthOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
-        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, DIRECTX.m_indexBuffer.gpuDescriptorHandle);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, m_indexBuffer.gpuDescriptorHandle);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::TextureSlot, DIRECTX.texArrayGpuHandle);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootShaderResourceView(DirectX12::GlobalRootSignatureParams::AccelerationStructureSlot, DIRECTX.m_topLevelAccelerationStructure->GetGPUVirtualAddress());
        DispatchRays(currFrameRes.m_dxrCommandList[DIRECTX.ActiveContext].Get(), DIRECTX.m_dxrStateObject.Get(), &dispatchDesc);
@@ -2667,6 +2668,10 @@ struct Scene
 
     void Init(bool includeIntensiveGPUobject)
     {
+        CreateConstantBuffers();
+        BuildGeometry();
+        BuildAccelerationStructures();
+
         TriangleSet cube;
         cube.AddSolidColorBox(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040);
         Add(
@@ -2766,6 +2771,46 @@ struct Scene
                 )
             )
         ); // Fixtures & furniture
+    }
+
+    // Create constant buffers.
+    void CreateConstantBuffers()
+    {
+
+        auto frameCount = DIRECTX.SwapChainNumFrames;
+
+        // Create the constant buffer memory and map the CPU and GPU addresses
+        const D3D12_HEAP_PROPERTIES uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+
+        // Allocate one constant buffer per frame, since it gets updated every frame.
+        size_t cbSize = frameCount * sizeof(SceneConstantBuffer);
+        const D3D12_RESOURCE_DESC constantBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(cbSize);
+
+        ThrowIfFailed(DIRECTX.Device->CreateCommittedResource(
+            &uploadHeapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &constantBufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_perFrameConstants[0])));
+
+        // Map the constant buffer and cache its heap pointers.
+        // We don't unmap this until the app closes. Keeping buffer mapped for the lifetime of the resource is okay.
+        CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
+        ThrowIfFailed(m_perFrameConstants[0]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[0])));
+
+        ThrowIfFailed(DIRECTX.Device->CreateCommittedResource(
+            &uploadHeapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &constantBufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_perFrameConstants[1])));
+
+        // Map the constant buffer and cache its heap pointers.
+        // We don't unmap this until the app closes. Keeping buffer mapped for the lifetime of the resource is okay.
+        readRange = CD3DX12_RANGE(0, 0);        // We do not intend to read from this resource on the CPU.
+        ThrowIfFailed(m_perFrameConstants[1]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[1])));
     }
 
     Scene() : numModels(0) {}
