@@ -22,7 +22,6 @@ struct Viewport
 
 struct Texture
 {
-    uint id;
     uint width;
     uint height;
 };
@@ -32,6 +31,7 @@ struct InstanceData
     uint textureId; 
     float u;
     float v;
+    float3 color;
 };
 #define MAX_INSTANCES 400
 
@@ -172,7 +172,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, g_sceneCB.instanceData[InstanceID()].textureId, 0));
     //float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, 2, 0));
     
-    payload.color = sampledColor;
+    payload.color = sampledColor * float4(g_sceneCB.instanceData[InstanceID()].color, 1.0f);
 
      // Calculate depth as the distance from the eye position to the hit point
     payload.depth = RayTCurrent();

@@ -2218,7 +2218,8 @@ struct TriangleSet
 
 struct Transform
 {
-    float transform[3][4];
+    XMFLOAT3X4 transform;
+    XMFLOAT4 color;
 
     void SetIdentity()
     {
@@ -2227,9 +2228,9 @@ struct Transform
             for (int j = 0; j < 4; j++)
             {
                 if (i == j)
-                    transform[i][j] = 1;
+                    transform.m[i][j] = 1;
                 else
-                    transform[i][j] = 0;
+                    transform.m[i][j] = 0;
             }
         }
     }
@@ -2242,22 +2243,35 @@ struct Transform
     void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
     {
         // Set position
-        transform[0][3] = (x1 + x2) * 0.5f;
-        transform[1][3] = (y1 + y2) * 0.5f;
-        transform[2][3] = (z1 + z2) * 0.5f;
+        transform.m[0][3] = (x1 + x2) * 0.5f;
+        transform.m[1][3] = (y1 + y2) * 0.5f;
+        transform.m[2][3] = (z1 + z2) * 0.5f;
 
         // Set scale
-        transform[0][0] = fabsf(x2 - x1);
-        transform[1][1] = fabsf(y2 - y1);
-        transform[2][2] = fabsf(z2 - z1);
+        transform.m[0][0] = fabsf(x2 - x1);
+        transform.m[1][1] = fabsf(y2 - y1);
+        transform.m[2][2] = fabsf(z2 - z1);
     }
 
-    Transform(float x1, float y1, float z1, float x2, float y2, float z2)
+    void GetNormalizedRGB(uint32_t color) {
+        // Extract individual color components
+        uint8_t r = (color >> 16) & 0xFF; // Red component
+        uint8_t g = (color >> 8) & 0xFF;  // Green component
+        uint8_t b = color & 0xFF;         // Blue component
+
+        // Normalize to range [0, 1]
+        this->color.x = static_cast<float>(r) / 255.0f;
+        this->color.y = static_cast<float>(g) / 255.0f;
+        this->color.z = static_cast<float>(b) / 255.0f;
+        this->color.w = 1.0f;
+    }
+
+    Transform(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color)
     {
         SetIdentity();
         SetAsBox(x1, y1, z1, x2, y2, z2);
+        GetNormalizedRGB(color);
     }
-
 
 };
 
@@ -2265,6 +2279,7 @@ struct RTXBoxModel
 {
     std::vector<Transform> transforms;
     RTXMaterial material;
+    
 
     RTXBoxModel(std::vector<Transform> transforms, RTXMaterial material)
     {
@@ -2442,9 +2457,8 @@ struct Scene
         if (numModels < MAX_MODELS)
             Models[numModels++] = n;
     }
-    struct TextureResource
+    struct TextureData
     {
-        UINT id;
         UINT width;
         UINT height;
     };
@@ -2455,6 +2469,7 @@ struct Scene
         float u;
         float v;
         float padding;
+        XMFLOAT4 color;
     };
 
     struct alignas(256) SceneConstantBuffer
@@ -2462,7 +2477,7 @@ struct Scene
         XMMATRIX projectionToWorld;
         XMVECTOR eyePosition;
         InstanceData instanceData[MAX_INSTANCES];
-        TextureResource textureResources[Texture::numTextures];
+        TextureData textureResources[Texture::numTextures];
     };
 
     SceneConstantBuffer* m_mappedConstantData[2];
@@ -2622,16 +2637,16 @@ struct Scene
         for (int i = 0; i < boxModels.size(); ++i) {
             for (int j = 0; j < boxModels[i].transforms.size(); j++)
             {
-                instanceDescsArray[index] = {};
-                float x = boxModels[i].transforms[j].transform[0][0];
-                float y = boxModels[i].transforms[j].transform[1][1];
-                float z = boxModels[i].transforms[j].transform[2][2];
+                instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
+                float x = boxModels[i].transforms[j].transform.m[0][0];
+                float y = boxModels[i].transforms[j].transform.m[1][1];
+                float z = boxModels[i].transforms[j].transform.m[2][2];
                 instanceDescsArray[index].Transform[0][0] = x;
                 instanceDescsArray[index].Transform[1][1] = y;
                 instanceDescsArray[index].Transform[2][2] = z;
-                instanceDescsArray[index].Transform[0][3] = boxModels[i].transforms[j].transform[0][3];
-                instanceDescsArray[index].Transform[1][3] = boxModels[i].transforms[j].transform[1][3];
-                instanceDescsArray[index].Transform[2][3] = boxModels[i].transforms[j].transform[2][3];
+                instanceDescsArray[index].Transform[0][3] = boxModels[i].transforms[j].transform.m[0][3];
+                instanceDescsArray[index].Transform[1][3] = boxModels[i].transforms[j].transform.m[1][3];
+                instanceDescsArray[index].Transform[2][3] = boxModels[i].transforms[j].transform.m[2][3];
                 instanceDescsArray[index].InstanceMask = 1;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
@@ -2651,6 +2666,7 @@ struct Scene
                     instanceData[index].u = x;
                     instanceData[index].v = z;
                 }
+                instanceData[index].color = boxModels[i].transforms[j].color;
                 index++;
             }
         }
@@ -2755,7 +2771,7 @@ struct Scene
         std::vector<RTXBoxModel> models;
         numInstances = 0;
 
-        transforms.push_back(Transform(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f));
+        transforms.push_back(Transform(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
         //TriangleSet cube;
         //cube.AddSolidColorBox(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040);
@@ -2769,7 +2785,7 @@ struct Scene
         
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f));
+        transforms.push_back(Transform(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
         //TriangleSet spareCube;
         //spareCube.AddSolidColorBox(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000);
@@ -2784,9 +2800,9 @@ struct Scene
 
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f));
-        transforms.push_back(Transform(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f));
-        transforms.push_back(Transform(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f));
+        transforms.push_back(Transform(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
+        transforms.push_back(Transform(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
+        transforms.push_back(Transform(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
         models.push_back(RTXBoxModel(transforms, RTXMaterial((UINT)Texture::AUTO_WALL - 1)));
         //TriangleSet walls;
         //walls.AddSolidColorBox(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080);  // Left Wall
@@ -2817,8 +2833,8 @@ struct Scene
 
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f));
-        transforms.push_back(Transform(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f));
+        transforms.push_back(Transform(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
+        transforms.push_back(Transform(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_FLOOR - 1)));
         //TriangleSet floors;
         //floors.AddSolidColorBox(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080); // Main floor
@@ -2834,7 +2850,7 @@ struct Scene
 
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f));
+        transforms.push_back(Transform(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
         //TriangleSet ceiling;
         //ceiling.AddSolidColorBox(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080);
@@ -2850,29 +2866,29 @@ struct Scene
         numInstances += transforms.size();
         transforms.clear();
         //TriangleSet furniture;
-        transforms.push_back(Transform(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f));    // Right side shelf// Verticals
-        transforms.push_back(Transform(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f));   // Right side shelf
-        transforms.push_back(Transform(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f)); // Right side shelf// Horizontals
-        transforms.push_back(Transform(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f)); // Right side shelf
-        transforms.push_back(Transform(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f));   // Right railing
-        transforms.push_back(Transform(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f));   // Left railing
+        transforms.push_back(Transform(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838));    // Right side shelf// Verticals
+        transforms.push_back(Transform(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838));   // Right side shelf
+        transforms.push_back(Transform(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838)); // Right side shelf// Horizontals
+        transforms.push_back(Transform(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838)); // Right side shelf
+        transforms.push_back(Transform(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838));   // Right railing
+        transforms.push_back(Transform(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838));   // Left railing
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(Transform(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f)); // Left Bars
+            transforms.push_back(Transform(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050)); // Left Bars
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(Transform(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f)); // Right Bars
-        transforms.push_back(Transform(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f));  // Table
-        transforms.push_back(Transform(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f)); // Table Leg
-        transforms.push_back(Transform(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f)); // Table Leg
-        transforms.push_back(Transform(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f));  // Table Leg
-        transforms.push_back(Transform(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f));  // Table Leg
-        transforms.push_back(Transform(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f));  // Chair Set
-        transforms.push_back(Transform(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f)); // Chair Leg 1
-        transforms.push_back(Transform(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f)); // Chair Leg 2
-        transforms.push_back(Transform(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f)); // Chair Leg 2
-        transforms.push_back(Transform(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f)); // Chair Leg 2
-        transforms.push_back(Transform(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f)); // Chair Back high bar
+            transforms.push_back(Transform(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050)); // Right Bars
+        transforms.push_back(Transform(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000));  // Table
+        transforms.push_back(Transform(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000)); // Table Leg
+        transforms.push_back(Transform(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000)); // Table Leg
+        transforms.push_back(Transform(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000));  // Table Leg
+        transforms.push_back(Transform(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000));  // Table Leg
+        transforms.push_back(Transform(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050));  // Chair Set
+        transforms.push_back(Transform(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050)); // Chair Leg 1
+        transforms.push_back(Transform(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(Transform(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(Transform(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(Transform(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050)); // Chair Back high bar
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
-            transforms.push_back(Transform(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f)); // Posts
+            transforms.push_back(Transform(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
 
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_WHITE - 1)));
         //Add(
