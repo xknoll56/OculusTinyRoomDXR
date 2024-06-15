@@ -1054,7 +1054,7 @@ struct DirectX12
 
 
 
-    void CreateTextureArray(UINT maxWidth, UINT maxHeight, UINT textureCount, UINT mipLevels = 9)
+    void CreateTextureArray(UINT maxWidth, UINT maxHeight, UINT textureCount, UINT mipLevels = 1)
     {
         // Create texture array resource
         D3D12_RESOURCE_DESC textureArrayDesc = {};
@@ -2516,15 +2516,15 @@ struct Scene
 
             // Right face
             { 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
-            { 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
             { 0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
-            { 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
+            { 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
 
             // Left face
             { -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
-            { -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+            { -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
             { -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
-            { -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
 
             // Top face
             { -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f , 0.0f, 0.0f},
@@ -2623,9 +2623,12 @@ struct Scene
             for (int j = 0; j < boxModels[i].transforms.size(); j++)
             {
                 instanceDescsArray[index] = {};
-                instanceDescsArray[index].Transform[0][0] = boxModels[i].transforms[j].transform[0][0];
-                instanceDescsArray[index].Transform[1][1] = boxModels[i].transforms[j].transform[1][1];
-                instanceDescsArray[index].Transform[2][2] = boxModels[i].transforms[j].transform[2][2];
+                float x = boxModels[i].transforms[j].transform[0][0];
+                float y = boxModels[i].transforms[j].transform[1][1];
+                float z = boxModels[i].transforms[j].transform[2][2];
+                instanceDescsArray[index].Transform[0][0] = x;
+                instanceDescsArray[index].Transform[1][1] = y;
+                instanceDescsArray[index].Transform[2][2] = z;
                 instanceDescsArray[index].Transform[0][3] = boxModels[i].transforms[j].transform[0][3];
                 instanceDescsArray[index].Transform[1][3] = boxModels[i].transforms[j].transform[1][3];
                 instanceDescsArray[index].Transform[2][3] = boxModels[i].transforms[j].transform[2][3];
@@ -2633,6 +2636,21 @@ struct Scene
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
                 instanceData[index].textureId = boxModels[i].material.TexIndex;
+                if (x >= z && y >= z)
+                {
+                    instanceData[index].u = x;
+                    instanceData[index].v = y;
+                }
+                else if (y >= x && z >= x)
+                {
+                    instanceData[index].u = z;
+                    instanceData[index].v = y;
+                }
+                else
+                {
+                    instanceData[index].u = x;
+                    instanceData[index].v = z;
+                }
                 index++;
             }
         }
@@ -2704,7 +2722,6 @@ struct Scene
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].eyePosition = eyePos;
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].width = 256;
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].height = 256;
-        m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].numInstances = numInstances;
         memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].instanceData[0], &instanceData[0], numInstances * sizeof(InstanceData));
 
         // Copy the updated scene constant buffer to GPU.

@@ -30,6 +30,8 @@ struct Texture
 struct InstanceData
 {
     uint textureId; 
+    float u;
+    float v;
 };
 #define MAX_INSTANCES 400
 
@@ -156,7 +158,8 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     float2 interpolatedTexcoord = vertexTexcoords[0] * barycentrics.x + vertexTexcoords[1] * barycentrics.y + vertexTexcoords[2] * barycentrics.z;
     // Assuming interpolatedTexcoord ranges from (0,0) to (1,1)
     float2 texcoord = interpolatedTexcoord.xy;
-
+    texcoord.x *= g_sceneCB.instanceData[InstanceID()].u;
+    texcoord.y *= g_sceneCB.instanceData[InstanceID()].v;
     // Perform wrap manually
     texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
     
