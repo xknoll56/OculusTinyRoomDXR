@@ -2429,6 +2429,7 @@ struct Model
     }
 };
 
+#define MAX_INSTANCES 400
 //-------------------------------------------------------------------------
 struct Scene
 {
@@ -2448,16 +2449,27 @@ struct Scene
         UINT height;
     };
 
+    struct InstanceData
+    {
+        UINT textureId;
+        float u;
+        float v;
+        float padding;
+    };
+
     struct alignas(256) SceneConstantBuffer
     {
         XMMATRIX projectionToWorld;
         XMVECTOR eyePosition;
-        TextureResource textureResources[1];
+        InstanceData instanceData[MAX_INSTANCES];
+        TextureResource textureResources[Texture::numTextures];
     };
 
     SceneConstantBuffer* m_mappedConstantData[2];
     ComPtr<ID3D12Resource>       m_perFrameConstants[2];
     SceneConstantBuffer m_sceneCB[2][DIRECTX.SwapChainNumFrames];
+    InstanceData instanceData[MAX_INSTANCES];
+    UINT numInstances;
 
     DirectX12::D3DBuffer m_indexBuffer;
     DirectX12::D3DBuffer m_vertexBuffer;
@@ -2539,7 +2551,7 @@ struct Scene
     }
 
     // Build acceleration structures needed for raytracing.
-    void BuildAccelerationStructures(std::vector<RTXBoxModel> boxModels, UINT numInstances)
+    void BuildAccelerationStructures(std::vector<RTXBoxModel> boxModels)
     {
 
         // Reset the command list for the acceleration structure construction.
@@ -2620,6 +2632,7 @@ struct Scene
                 instanceDescsArray[index].InstanceMask = 1;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+                instanceData[index].textureId = boxModels[i].material.TexIndex;
                 index++;
             }
         }
@@ -2691,6 +2704,9 @@ struct Scene
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].eyePosition = eyePos;
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].width = 256;
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].height = 256;
+        m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].numInstances = numInstances;
+        memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].instanceData[0], &instanceData[0], numInstances * sizeof(InstanceData));
+
         // Copy the updated scene constant buffer to GPU.
         memcpy(&m_mappedConstantData[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], &m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], 
             sizeof(m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex]));
@@ -2720,7 +2736,7 @@ struct Scene
         BuildGeometry();
         std::vector<Transform> transforms;
         std::vector<RTXBoxModel> models;
-        UINT numInstances = 0;
+        numInstances = 0;
 
         transforms.push_back(Transform(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
@@ -2754,7 +2770,7 @@ struct Scene
         transforms.push_back(Transform(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f));
         transforms.push_back(Transform(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f));
         transforms.push_back(Transform(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f));
-        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_WALL - 1)));
+        models.push_back(RTXBoxModel(transforms, RTXMaterial((UINT)Texture::AUTO_WALL - 1)));
         //TriangleSet walls;
         //walls.AddSolidColorBox(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080);  // Left Wall
         //walls.AddSolidColorBox(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080); // Back Wall
@@ -2786,7 +2802,7 @@ struct Scene
         transforms.clear();
         transforms.push_back(Transform(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f));
         transforms.push_back(Transform(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f));
-        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_FLOOR - 1)));
         //TriangleSet floors;
         //floors.AddSolidColorBox(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080); // Main floor
         //floors.AddSolidColorBox(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080); // Bottom floor
@@ -2798,49 +2814,59 @@ struct Scene
         //    )
         //); // Floors
 
-        TriangleSet ceiling;
-        ceiling.AddSolidColorBox(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080);
-        Add(
-            new Model(&ceiling, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-                new Material(
-                    new Texture(false, 256, 256, Texture::AUTO_CEILING)
-                )
-            )
-        ); // Ceiling
 
-        TriangleSet furniture;
-        furniture.AddSolidColorBox(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838);    // Right side shelf// Verticals
-        furniture.AddSolidColorBox(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838);   // Right side shelf
-        furniture.AddSolidColorBox(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838); // Right side shelf// Horizontals
-        furniture.AddSolidColorBox(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838); // Right side shelf
-        furniture.AddSolidColorBox(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838);   // Right railing
-        furniture.AddSolidColorBox(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838);   // Left railing
-        for (float f = 5; f <= 9; f += 1)
-            furniture.AddSolidColorBox(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050); // Left Bars
-        for (float f = 5; f <= 9; f += 1)
-            furniture.AddSolidColorBox(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050); // Right Bars
-        furniture.AddSolidColorBox(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000);  // Table
-        furniture.AddSolidColorBox(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000); // Table Leg
-        furniture.AddSolidColorBox(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000); // Table Leg
-        furniture.AddSolidColorBox(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000);  // Table Leg
-        furniture.AddSolidColorBox(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000);  // Table Leg
-        furniture.AddSolidColorBox(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050);  // Chair Set
-        furniture.AddSolidColorBox(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050); // Chair Leg 1
-        furniture.AddSolidColorBox(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050); // Chair Leg 2
-        furniture.AddSolidColorBox(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050); // Chair Leg 2
-        furniture.AddSolidColorBox(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050); // Chair Leg 2
-        furniture.AddSolidColorBox(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050); // Chair Back high bar
-        for (float f = 3.0f; f <= 6.6f; f += 0.4f)
-            furniture.AddSolidColorBox(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040); // Posts
-        Add(
-            new Model(&furniture, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-                new Material(
-                    new Texture(false, 256, 256, Texture::AUTO_WHITE)
-                )
-            )
-        ); // Fixtures & furniture
         numInstances += transforms.size();
-        BuildAccelerationStructures(models, numInstances);
+        transforms.clear();
+        transforms.push_back(Transform(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f));
+        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        //TriangleSet ceiling;
+        //ceiling.AddSolidColorBox(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080);
+        //Add(
+        //    new Model(&ceiling, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
+        //        new Material(
+        //            new Texture(false, 256, 256, Texture::AUTO_CEILING)
+        //        )
+        //    )
+        //); // Ceiling
+
+
+        numInstances += transforms.size();
+        transforms.clear();
+        //TriangleSet furniture;
+        transforms.push_back(Transform(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f));    // Right side shelf// Verticals
+        transforms.push_back(Transform(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f));   // Right side shelf
+        transforms.push_back(Transform(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f)); // Right side shelf// Horizontals
+        transforms.push_back(Transform(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f)); // Right side shelf
+        transforms.push_back(Transform(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f));   // Right railing
+        transforms.push_back(Transform(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f));   // Left railing
+        for (float f = 5; f <= 9; f += 1)
+            transforms.push_back(Transform(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f)); // Left Bars
+        for (float f = 5; f <= 9; f += 1)
+            transforms.push_back(Transform(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f)); // Right Bars
+        transforms.push_back(Transform(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f));  // Table
+        transforms.push_back(Transform(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f)); // Table Leg
+        transforms.push_back(Transform(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f)); // Table Leg
+        transforms.push_back(Transform(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f));  // Table Leg
+        transforms.push_back(Transform(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f));  // Table Leg
+        transforms.push_back(Transform(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f));  // Chair Set
+        transforms.push_back(Transform(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f)); // Chair Leg 1
+        transforms.push_back(Transform(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f)); // Chair Leg 2
+        transforms.push_back(Transform(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f)); // Chair Leg 2
+        transforms.push_back(Transform(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f)); // Chair Leg 2
+        transforms.push_back(Transform(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f)); // Chair Back high bar
+        for (float f = 3.0f; f <= 6.6f; f += 0.4f)
+            transforms.push_back(Transform(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f)); // Posts
+
+        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_WHITE - 1)));
+        //Add(
+        //    new Model(&furniture, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
+        //        new Material(
+        //            new Texture(false, 256, 256, Texture::AUTO_WHITE)
+        //        )
+        //    )
+        //); // Fixtures & furniture
+        numInstances += transforms.size();
+        BuildAccelerationStructures(models);
     }
 
     // Create constant buffers.

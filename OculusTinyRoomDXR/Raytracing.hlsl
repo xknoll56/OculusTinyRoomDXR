@@ -27,10 +27,17 @@ struct Texture
     uint height;
 };
 
+struct InstanceData
+{
+    uint textureId; 
+};
+#define MAX_INSTANCES 400
+
 struct SceneConstantBuffer
 {
     float4x4 projectionToWorld;
     float4 eyePosition;  
+    InstanceData instanceData[MAX_INSTANCES];
     Texture texture[6];
 };
 
@@ -157,18 +164,10 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     float3 hitPoint = payload.rayOrigin + RayTCurrent() * payload.rayDirection;
     float distance = length(hitPoint - g_sceneCB.eyePosition);
 
-    // Estimate LOD based on distance
-    float lod = log2(distance);
-
-    // Clamp LOD to the valid range of mip levels (assume maximum level is 9 for this example)
-    lod = clamp(lod, 0.0, 1.0);
-
-    // Convert to integer mip level (rounding to the nearest integer)
-    int mipLevel = (int) round(lod);
-    
     
     // Sample the texture
-    float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, 1, 0));
+    float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, g_sceneCB.instanceData[InstanceID()].textureId, 0));
+    //float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, 2, 0));
     
     payload.color = sampledColor;
 
