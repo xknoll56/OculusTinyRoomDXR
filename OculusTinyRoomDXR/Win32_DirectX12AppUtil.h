@@ -1957,6 +1957,14 @@ struct RTXMaterial
 {
     UINT TexIndex;
 
+    RTXMaterial()
+    {
+        this->TexIndex = 0;
+    }
+    RTXMaterial(UINT TexIndex)
+    {
+        this->TexIndex = TexIndex;
+    }
 };
 //-----------------------------------------------------
 struct Material
@@ -2212,7 +2220,7 @@ struct Transform
 {
     float transform[3][4];
 
-    Transform()
+    void SetIdentity()
     {
         for (int i = 0; i < 3; i++)
         {
@@ -2226,6 +2234,11 @@ struct Transform
         }
     }
 
+    Transform()
+    {
+        SetIdentity();
+    }
+
     void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
     {
         // Set position
@@ -2237,6 +2250,26 @@ struct Transform
         transform[0][0] = fabsf(x2 - x1);
         transform[1][1] = fabsf(y2 - y1);
         transform[2][2] = fabsf(z2 - z1);
+    }
+
+    Transform(float x1, float y1, float z1, float x2, float y2, float z2)
+    {
+        SetIdentity();
+        SetAsBox(x1, y1, z1, x2, y2, z2);
+    }
+
+
+};
+
+struct RTXBoxModel
+{
+    std::vector<Transform> transforms;
+    RTXMaterial material;
+
+    RTXBoxModel(std::vector<Transform> transforms, RTXMaterial material)
+    {
+        this->transforms = transforms;
+        this->material = material;
     }
 };
 
@@ -2506,7 +2539,7 @@ struct Scene
     }
 
     // Build acceleration structures needed for raytracing.
-    void BuildAccelerationStructures()
+    void BuildAccelerationStructures(std::vector<RTXBoxModel> boxModels, UINT numInstances)
     {
 
         // Reset the command list for the acceleration structure construction.
@@ -2533,7 +2566,7 @@ struct Scene
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS topLevelInputs = {};
         topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
         topLevelInputs.Flags = buildFlags;
-        topLevelInputs.NumDescs = 2;
+        topLevelInputs.NumDescs = numInstances;
         topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo = {};
@@ -2541,10 +2574,14 @@ struct Scene
         if (!(topLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
             exit(1);
 
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = topLevelInputs;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = {};
         bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        bottomLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        bottomLevelInputs.Flags = buildFlags;
+        bottomLevelInputs.NumDescs = 1;
         bottomLevelInputs.pGeometryDescs = &geometryDesc;
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
         DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
         if (!(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
             exit(1);
@@ -2567,15 +2604,26 @@ struct Scene
         }
 
         ID3D12Resource* instanceDescs;
-        D3D12_RAYTRACING_INSTANCE_DESC instanceDescsArray[2] = {};
-        for (int i = 0; i < 2; ++i) {
-            instanceDescsArray[i].Transform[0][0] = instanceDescsArray[i].Transform[1][1] = instanceDescsArray[i].Transform[2][2] = 1;
-            instanceDescsArray[i].InstanceMask = 1;
-            instanceDescsArray[i].InstanceID = i; // Assign unique instance IDs
-            instanceDescsArray[i].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+
+        D3D12_RAYTRACING_INSTANCE_DESC* instanceDescsArray = new D3D12_RAYTRACING_INSTANCE_DESC[numInstances];
+        UINT index = 0;
+        for (int i = 0; i < boxModels.size(); ++i) {
+            for (int j = 0; j < boxModels[i].transforms.size(); j++)
+            {
+                instanceDescsArray[index] = {};
+                instanceDescsArray[index].Transform[0][0] = boxModels[i].transforms[j].transform[0][0];
+                instanceDescsArray[index].Transform[1][1] = boxModels[i].transforms[j].transform[1][1];
+                instanceDescsArray[index].Transform[2][2] = boxModels[i].transforms[j].transform[2][2];
+                instanceDescsArray[index].Transform[0][3] = boxModels[i].transforms[j].transform[0][3];
+                instanceDescsArray[index].Transform[1][3] = boxModels[i].transforms[j].transform[1][3];
+                instanceDescsArray[index].Transform[2][3] = boxModels[i].transforms[j].transform[2][3];
+                instanceDescsArray[index].InstanceMask = 1;
+                instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
+                instanceDescsArray[index].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+                index++;
+            }
         }
-        instanceDescsArray->Transform[0][3] = 3.0f;
-        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, sizeof(instanceDescsArray), &instanceDescs, L"InstanceDescs");
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances*sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs, L"InstanceDescs");
 
         // Bottom Level Acceleration Structure desc
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
@@ -2670,65 +2718,85 @@ struct Scene
     {
         CreateConstantBuffers();
         BuildGeometry();
-        BuildAccelerationStructures();
+        std::vector<Transform> transforms;
+        std::vector<RTXBoxModel> models;
+        UINT numInstances = 0;
 
-        TriangleSet cube;
-        cube.AddSolidColorBox(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040);
-        Add(
-            new Model(&cube, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-                new Material(
-                    new Texture(false, 256, 256, Texture::AUTO_CEILING)
-                )
-            )
-        );
+        transforms.push_back(Transform(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f));
+        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        //TriangleSet cube;
+        //cube.AddSolidColorBox(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040);
+        //Add(
+        //    new Model(&cube, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
+        //        new Material(
+        //            new Texture(false, 256, 256, Texture::AUTO_CEILING)
+        //        )
+        //    )
+        //);
+        
+        numInstances += transforms.size();
+        transforms.clear();
+        transforms.push_back(Transform(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f));
+        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        //TriangleSet spareCube;
+        //spareCube.AddSolidColorBox(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000);
+        //Add(
+        //    new Model(&spareCube, XMFLOAT3(0, -10, 0), XMFLOAT4(0, 0, 0, 1),
+        //        new Material(
+        //            new Texture(false, 256, 256, Texture::AUTO_CEILING)
+        //        )
+        //    )
+        //);
 
-        TriangleSet spareCube;
-        spareCube.AddSolidColorBox(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000);
-        Add(
-            new Model(&spareCube, XMFLOAT3(0, -10, 0), XMFLOAT4(0, 0, 0, 1),
-                new Material(
-                    new Texture(false, 256, 256, Texture::AUTO_CEILING)
-                )
-            )
-        );
 
-        TriangleSet walls;
-        walls.AddSolidColorBox(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080);  // Left Wall
-        walls.AddSolidColorBox(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080); // Back Wall
-        walls.AddSolidColorBox(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080);   // Right Wall
-        Add(
-            new Model(&walls, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-                new Material(
-                    new Texture(false, 256, 256, Texture::AUTO_WALL)
-                )
-            )
-        );
+        numInstances += transforms.size();
+        transforms.clear();
+        transforms.push_back(Transform(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f));
+        transforms.push_back(Transform(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f));
+        transforms.push_back(Transform(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f));
+        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_WALL - 1)));
+        //TriangleSet walls;
+        //walls.AddSolidColorBox(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080);  // Left Wall
+        //walls.AddSolidColorBox(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080); // Back Wall
+        //walls.AddSolidColorBox(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080);   // Right Wall
+        //Add(
+        //    new Model(&walls, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
+        //        new Material(
+        //            new Texture(false, 256, 256, Texture::AUTO_WALL)
+        //        )
+        //    )
+        //);
 
-        if (includeIntensiveGPUobject)
-        {
-            TriangleSet partitions;
-            for (float depth = 0.0f; depth > -3.0f; depth -= 0.1f)
-                partitions.AddSolidColorBox(9.0f, 0.5f, -depth, -9.0f, 3.5f, -depth, 0x10ff80ff); // Partition
+        //if (includeIntensiveGPUobject)
+        //{
+        //    TriangleSet partitions;
+        //    for (float depth = 0.0f; depth > -3.0f; depth -= 0.1f)
+        //        partitions.AddSolidColorBox(9.0f, 0.5f, -depth, -9.0f, 3.5f, -depth, 0x10ff80ff); // Partition
 
-            Add(
-                new Model(&partitions, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-                    new Material(
-                        new Texture(false, 256, 256, Texture::AUTO_FLOOR)
-                    )
-                )
-            ); // Floors
-        }
+        //    Add(
+        //        new Model(&partitions, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
+        //            new Material(
+        //                new Texture(false, 256, 256, Texture::AUTO_FLOOR)
+        //            )
+        //        )
+        //    ); // Floors
+        //}
 
-        TriangleSet floors;
-        floors.AddSolidColorBox(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080); // Main floor
-        floors.AddSolidColorBox(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080); // Bottom floor
-        Add(
-            new Model(&floors, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-                new Material(
-                    new Texture(false, 256, 256, Texture::AUTO_FLOOR)
-                )
-            )
-        ); // Floors
+        numInstances += transforms.size();
+        transforms.clear();
+        transforms.push_back(Transform(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f));
+        transforms.push_back(Transform(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f));
+        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        //TriangleSet floors;
+        //floors.AddSolidColorBox(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080); // Main floor
+        //floors.AddSolidColorBox(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080); // Bottom floor
+        //Add(
+        //    new Model(&floors, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
+        //        new Material(
+        //            new Texture(false, 256, 256, Texture::AUTO_FLOOR)
+        //        )
+        //    )
+        //); // Floors
 
         TriangleSet ceiling;
         ceiling.AddSolidColorBox(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080);
@@ -2771,6 +2839,8 @@ struct Scene
                 )
             )
         ); // Fixtures & furniture
+        numInstances += transforms.size();
+        BuildAccelerationStructures(models, numInstances);
     }
 
     // Create constant buffers.
