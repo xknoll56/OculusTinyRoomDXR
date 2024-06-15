@@ -68,8 +68,6 @@ struct RayPayload
 {
     float4 color;
     float depth;
-    float3 rayOrigin;
-    float3 rayDirection;
 };
 
 // Generate a ray in world space for a camera pixel corresponding to an index from the dispatched 2D grid.
@@ -108,7 +106,7 @@ void MyRaygenShader()
     // TMin should be kept small to prevent missing geometry at close contact areas.
     ray.TMin = 0.001;
     ray.TMax = 10000.0;
-    RayPayload payload = { float4(0, 0, 0, 0), 0, ray.Origin, ray.Direction };
+    RayPayload payload = { float4(0, 0, 0, 0), 0};
     TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
 
     // Write the raytraced color to the output texture.
@@ -162,18 +160,14 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     texcoord.y *= g_sceneCB.instanceData[InstanceID()].v;
     // Perform wrap manually
     texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
-    
-    // Calculate the distance from the camera/eye to the intersection point
-    float3 hitPoint = payload.rayOrigin + RayTCurrent() * payload.rayDirection;
-    float distance = length(hitPoint - g_sceneCB.eyePosition);
-
+   
     
     // Sample the texture
     float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, g_sceneCB.instanceData[InstanceID()].textureId, 0));
     //float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, 2, 0));
     
-    payload.color = sampledColor * float4(g_sceneCB.instanceData[InstanceID()].color, 1.0f);
-    payload.color *= 2.0f;
+    float4 instanceColor = saturate(float4(g_sceneCB.instanceData[InstanceID()].color, 1.0f) * 2.0f);
+    payload.color = sampledColor * instanceColor;
 
      // Calculate depth as the distance from the eye position to the hit point
     payload.depth = RayTCurrent();

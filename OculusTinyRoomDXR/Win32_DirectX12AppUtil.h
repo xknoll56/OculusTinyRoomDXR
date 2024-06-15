@@ -1,9 +1,13 @@
 /************************************************************************************
 Filename    :   Win32_DirectX12AppUtil.h
-Content     :   D3D12 application/Window setup functionality for RoomTiny
+Content     :   D3D12 application/Window setup functionality for RoomTiny raytracing
 Created     :   10/28/2015
 
 Copyright   :   Copyright (c) Facebook Technologies, LLC and its affiliates. All rights reserved.
+
+Copyright   :   Copyright (c) Xavier Knoll 2024 All rights reserved.
+
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -746,7 +750,7 @@ struct DirectX12
         // Shader config
         // Defines the maximum sizes in bytes for the ray payload and attribute structure.
         auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
-        UINT payloadSize = 11 * sizeof(float);   // float4 color, float depth
+        UINT payloadSize = 5 * sizeof(float);   // float4 color, float depth
         UINT attributeSize = 2 * sizeof(float); // float2 barycentrics
         shaderConfig->Config(payloadSize, attributeSize);
 
@@ -1968,13 +1972,13 @@ struct Transform
 
 };
 
-struct RTXBoxModel
+struct Model
 {
     std::vector<Transform> transforms;
     RTXMaterial material;
     
 
-    RTXBoxModel(std::vector<Transform> transforms, RTXMaterial material)
+    Model(std::vector<Transform> transforms, RTXMaterial material)
     {
         this->transforms = transforms;
         this->material = material;
@@ -2108,7 +2112,7 @@ struct Scene
     }
 
     // Build acceleration structures needed for raytracing.
-    void BuildAccelerationStructures(std::vector<RTXBoxModel> boxModels)
+    void BuildAccelerationStructures(std::vector<Model> boxModels)
     {
 
         // Reset the command list for the acceleration structure construction.
@@ -2304,16 +2308,16 @@ struct Scene
         CreateConstantBuffers();
         BuildGeometry();
         std::vector<Transform> transforms;
-        std::vector<RTXBoxModel> models;
+        std::vector<Model> models;
         numInstances = 0;
 
         transforms.push_back(Transform(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
-        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
         
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(Transform(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000));
-        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
 
 
         numInstances += transforms.size();
@@ -2321,19 +2325,19 @@ struct Scene
         transforms.push_back(Transform(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
         transforms.push_back(Transform(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
         transforms.push_back(Transform(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
-        models.push_back(RTXBoxModel(transforms, RTXMaterial((UINT)Texture::AUTO_WALL - 1)));
+        models.push_back(Model(transforms, RTXMaterial((UINT)Texture::AUTO_WALL - 1)));
 
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(Transform(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
         transforms.push_back(Transform(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
-        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_FLOOR - 1)));
+        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_FLOOR - 1)));
 
 
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(Transform(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
-        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
 
 
         numInstances += transforms.size();
@@ -2363,7 +2367,7 @@ struct Scene
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
             transforms.push_back(Transform(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
 
-        models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_WHITE - 1)));
+        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_WHITE - 1)));
         numInstances += transforms.size();
         BuildAccelerationStructures(models);
     }

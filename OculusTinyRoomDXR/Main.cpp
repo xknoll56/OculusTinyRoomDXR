@@ -1,3 +1,29 @@
+/************************************************************************************
+Filename    :   main.cpp
+Content     :   First-person view test application for custom VR project
+Created     :   10/28/2015
+
+Copyright   :   Copyright (c) Facebook Technologies, LLC and its affiliates. All rights reserved.
+
+Copyright   :   Copyright (c) Xavier Knoll 2024 All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*************************************************************************************/
+/// This is a customized VR application sample for demonstration purposes.
+/// Use WASD keys to move around, and cursor keys for interaction.
+/// It utilizes DirectX12 Raytracing for rendering.
+
+
 #define win32_lean_and_mean
 #include <Windows.h>
 // Include the Oculus SDK
@@ -212,6 +238,7 @@ static bool MainLoop(bool retryCreate)
     Scene* roomScene = nullptr;
     Camera* mainCam = nullptr;
     ovrMirrorTextureDesc        mirrorDesc = {};
+    ovrInputState inputState;
 
     int eyeMsaaRate = 4;
     DXGI_FORMAT depthFormat = DXGI_FORMAT_D32_FLOAT;
@@ -339,9 +366,18 @@ static bool MainLoop(bool retryCreate)
             if (DIRECTX.Key['S'] || DIRECTX.Key[VK_DOWN])    mainCamPos = XMVectorSubtract(mainCamPos, forward);
             if (DIRECTX.Key['D'])                            mainCamPos = XMVectorAdd(mainCamPos, right);
             if (DIRECTX.Key['A'])                            mainCamPos = XMVectorSubtract(mainCamPos, right);
+
+            
+            result = ovr_GetInputState(session, ovrControllerType_Touch, &inputState);
+            float thumbstickX = inputState.Thumbstick[ovrHand_Left].x;
+            float thumbstickY = inputState.Thumbstick[ovrHand_Left].y;
+            mainCamPos = XMVectorAdd(mainCamPos, XMVectorScale(forward, thumbstickY));
+            mainCamPos = XMVectorAdd(mainCamPos, XMVectorScale(right, thumbstickX));
             
             if (DIRECTX.Key[VK_LEFT])  mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw += 0.02f, 0);
             if (DIRECTX.Key[VK_RIGHT]) mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw -= 0.02f, 0);
+            thumbstickX = inputState.Thumbstick[ovrHand_Right].x;
+            mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw -= 0.02f * thumbstickX, 0);
 
             mainCam->SetPosVec(mainCamPos);
             mainCam->SetRotVec(mainCamRot);
