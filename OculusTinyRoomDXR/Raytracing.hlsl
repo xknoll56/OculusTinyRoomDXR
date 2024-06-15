@@ -173,6 +173,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     //float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, 2, 0));
     
     payload.color = sampledColor * float4(g_sceneCB.instanceData[InstanceID()].color, 1.0f);
+    payload.color *= 2.0f;
 
      // Calculate depth as the distance from the eye position to the hit point
     payload.depth = RayTCurrent();

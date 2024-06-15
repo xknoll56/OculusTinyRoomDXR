@@ -222,32 +222,6 @@ struct DirectX12
         float bottom;
     };
 
-    struct RayGenConstantBuffer
-    {
-        Viewport viewport;
-        Viewport stencil;
-    };
-
-
-
-    struct float3 
-    {
-        float x, y, z;
-    };
-    struct float2
-    {
-        float x, y;
-    };
-    struct RTXVertex 
-    {
-        float3 postion;
-        float3 normal;
-        float2 uv;
-    };
-
-
-
-
 
     HWND                        Window;
     bool                        Running;
@@ -270,9 +244,6 @@ struct DirectX12
     // Root signatures
     ComPtr<ID3D12RootSignature> m_raytracingGlobalRootSignature;
     ComPtr<ID3D12RootSignature> m_raytracingLocalRootSignature;
-
-    // Raytracing scene
-    RayGenConstantBuffer m_rayGenCB;
 
     //Raytracing Descriptors
     //ComPtr<ID3D12DescriptorHeap> m_descriptorHeap;
@@ -1041,10 +1012,6 @@ struct DirectX12
         CreateRaytracingInterfaces();
         CreateRootSignatures();
         CreateRaytracingPipelineStateObject();
-        //CreateRaytracingDescriptorHeap();
-        //BuildGeometry();
-        //BuildAccelerationStructures();
-        //CreateConstantBuffers();
         CreateTextureArray(256, 256, 10, 1);
         BuildShaderTables();
         CreateRaytracingOutputResource(eyeWidth, eyeHeight);
@@ -1157,12 +1124,6 @@ struct DirectX12
             D3D12_RESOURCE_STATE_COMMON);
         commandList->ResourceBarrier(1, &barrier);
     }
-
-
-
-
-
-
 
     class GpuUploadBuffer
     {
@@ -1280,26 +1241,6 @@ struct DirectX12
         }
 
         UINT GetShaderRecordSize() { return m_shaderRecordSize; }
-
-        // Pretty-print the shader records.
-        //void DebugPrint(std::unordered_map<void*, std::wstring> shaderIdToStringMap)
-        //{
-        //    std::wstringstream wstr;
-        //    wstr << L"|--------------------------------------------------------------------\n";
-        //    wstr << L"|Shader table - " << m_name.c_str() << L": "
-        //        << m_shaderRecordSize << L" | "
-        //        << m_shaderRecords.size() * m_shaderRecordSize << L" bytes\n";
-
-        //    for (UINT i = 0; i < m_shaderRecords.size(); i++)
-        //    {
-        //        wstr << L"| [" << i << L"]: ";
-        //        wstr << shaderIdToStringMap[m_shaderRecords[i].shaderIdentifier.ptr] << L", ";
-        //        wstr << m_shaderRecords[i].shaderIdentifier.size << L" + " << m_shaderRecords[i].localRootArguments.size << L" bytes \n";
-        //    }
-        //    wstr << L"|--------------------------------------------------------------------\n";
-        //    wstr << L"\n";
-        //    OutputDebugStringW(wstr.str().c_str());
-        //}
     };
 
 
@@ -1953,6 +1894,7 @@ public:
     }
 };
 
+//-----------------------------------------------------
 struct RTXMaterial
 {
     UINT TexIndex;
@@ -1965,255 +1907,6 @@ struct RTXMaterial
     {
         this->TexIndex = TexIndex;
     }
-};
-//-----------------------------------------------------
-struct Material
-{
-    Texture* Tex;
-    UINT                        VertexSize;
-    ID3D12RootSignature* RootSignature;
-    ID3D12PipelineState* PipelineState;
-
-    enum { MAT_WRAP = 1, MAT_WIRE = 2, MAT_ZALWAYS = 4, MAT_NOCULL = 8, MAT_TRANS = 16 };
-
-    Material(
-        Texture* t,
-        uint32_t flags = MAT_WRAP | MAT_TRANS,
-        D3D12_INPUT_ELEMENT_DESC* vertexDesc = NULL,
-        int numVertexDesc = 3,
-        const char* vertexShaderStr = NULL,
-        const char* pixelShaderStr = NULL,
-        int vSize = 24)
-        : Tex(t)
-        , VertexSize(vSize)
-    {
-        UNREFERENCED_PARAMETER(flags);
-
-        // Create the pipeline state, which includes compiling and loading shaders.
-        D3D12_INPUT_ELEMENT_DESC defaultVertexDesc[] =
-        {
-            { "Position", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "Color",    0, DXGI_FORMAT_B8G8R8A8_UNORM,  0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "TexCoord", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        };
-
-        // Use defaults if no shaders specified
-        const char* defaultVertexShaderSrc =
-            "float4x4 ProjView;\n"
-            "float4 MasterCol;\n"
-            "void main(in  float4 Position  : POSITION,    in  float4 Color : COLOR0, in  float2 TexCoord  : TEXCOORD0,\n"
-            "          out float4 oPosition : SV_Position, out float4 oColor: COLOR0, out float2 oTexCoord : TEXCOORD0)\n"
-            "{\n"
-            "    oPosition = mul(ProjView, Position); oTexCoord = TexCoord;\n"
-            "    oColor = MasterCol * Color;\n"
-            "}\n";
-        const char* defaultPixelShaderSrc =
-            "Texture2D Texture : register(t0); SamplerState Linear : register(s0);\n"
-            "float4 main(in float4 Position : SV_Position, in float4 Color: COLOR0, in float2 TexCoord : TEXCOORD0) : SV_Target\n"
-            "{\n"
-            "    float4 TexCol = Texture.Sample(Linear, TexCoord);\n"
-            "    if (TexCol.a==0) clip(-1);\n" // If alpha = 0, don't draw
-            "    return(Color * TexCol);\n"
-            "}\n";
-
-        if (!vertexDesc)        vertexDesc = defaultVertexDesc;
-        if (!vertexShaderStr)   vertexShaderStr = defaultVertexShaderSrc;
-        if (!pixelShaderStr)    pixelShaderStr = defaultPixelShaderSrc;
-
-        UINT compileFlags = 0;
-#ifdef _DEBUG
-        // Enable better shader debugging with the graphics debugging tools.
-        compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif
-
-        ID3DBlob* compiledVS;
-        HRESULT hr = D3DCompile(vertexShaderStr, strlen(vertexShaderStr), 0, 0, 0, "main", "vs_5_0", compileFlags, 0, &compiledVS, 0);
-        VALIDATE((hr == ERROR_SUCCESS), "D3DCompile VertexShader failed");
-
-        ID3DBlob* compiledPS;
-        hr = D3DCompile(pixelShaderStr, strlen(pixelShaderStr), 0, 0, 0, "main", "ps_5_0", compileFlags, 0, &compiledPS, 0);
-        VALIDATE((hr == ERROR_SUCCESS), "D3DCompile PixelShader failed");
-
-        CD3DX12_DESCRIPTOR_RANGE ranges[2];
-        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-
-        CD3DX12_ROOT_PARAMETER rootParameters[2];
-        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
-        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_VERTEX);
-
-        D3D12_STATIC_SAMPLER_DESC sampler = {};
-        sampler.Filter = D3D12_FILTER_ANISOTROPIC;
-        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampler.MipLODBias = 0;
-        sampler.MaxAnisotropy = 8;
-        sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-        sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
-        sampler.MinLOD = 0.0f;
-        sampler.MaxLOD = D3D12_FLOAT32_MAX;
-        sampler.ShaderRegister = 0;
-        sampler.RegisterSpace = 0;
-        sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
-        CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-        rootSignatureDesc.Init(_countof(rootParameters), rootParameters, 1, &sampler,
-            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-        ID3DBlob* signature;
-        ID3DBlob* error;
-        hr = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
-        //{
-        //    char* errStr = (char*)error->GetBufferPointer();
-        //    SIZE_T len = error->GetBufferSize();
-
-        //    if (errStr && len > 0)
-        //    {
-        //        OutputDebugStringA(errStr);
-        //    }
-        //}
-        VALIDATE((hr == ERROR_SUCCESS), "D3D12SerializeRootSignature failed");
-        hr = DIRECTX.Device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&RootSignature));
-        VALIDATE((hr == ERROR_SUCCESS), "CreateRootSignature failed");
-
-        VALIDATE(Tex, "Texture required for Material");
-
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.InputLayout.pInputElementDescs = vertexDesc;
-        psoDesc.InputLayout.NumElements = (UINT)numVertexDesc;
-        psoDesc.pRootSignature = RootSignature;
-        psoDesc.VS.pShaderBytecode = reinterpret_cast<UINT8*>(compiledVS->GetBufferPointer());
-        psoDesc.VS.BytecodeLength = compiledVS->GetBufferSize();
-        psoDesc.PS.pShaderBytecode = reinterpret_cast<UINT8*>(compiledPS->GetBufferPointer());
-        psoDesc.PS.BytecodeLength = compiledPS->GetBufferSize();
-        psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-        psoDesc.DepthStencilState.DepthEnable = TRUE;
-        psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-        psoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
-        psoDesc.DepthStencilState.StencilEnable = FALSE;
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets = 1;
-        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-        psoDesc.DSVFormat = DIRECTX.DepthFormat;
-        psoDesc.SampleDesc.Count = DIRECTX.EyeMsaaRate;
-        hr = DIRECTX.Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&PipelineState));
-        VALIDATE((hr == ERROR_SUCCESS), "CreateGraphicsPipelineState failed");
-    }
-
-    ~Material()
-    {
-        delete Tex; Tex = nullptr;
-        Release(RootSignature);
-        Release(PipelineState);
-    }
-};
-
-//----------------------------------------------------------------------
-struct Vertex
-{
-    XMFLOAT3    Pos;
-    uint32_t    C;
-    float       U, V;
-
-    Vertex()
-    {
-    }
-
-    Vertex(XMFLOAT3 pos, uint32_t c, float u, float v) :
-        Pos(pos),
-        C(c),
-        U(u),
-        V(v)
-    {
-    }
-};
-
-//-----------------------------------------------------------------------
-struct TriangleSet
-{
-    int         numVertices, numIndices, maxBuffer;
-    Vertex* Vertices;
-    short* Indices;
-
-    TriangleSet(int maxTriangles = 2000) : maxBuffer(3 * maxTriangles)
-    {
-        numVertices = numIndices = 0;
-        Vertices = (Vertex*)_aligned_malloc(maxBuffer * sizeof(Vertex), 16);
-        Indices = (short*)_aligned_malloc(maxBuffer * sizeof(short), 16);
-    }
-
-    ~TriangleSet()
-    {
-        _aligned_free(Vertices);
-        _aligned_free(Indices);
-    }
-
-    void AddQuad(Vertex v0, Vertex v1, Vertex v2, Vertex v3)
-    {
-        AddTriangle(v0, v1, v2);
-        AddTriangle(v3, v2, v1);
-    }
-
-    void AddTriangle(Vertex v0, Vertex v1, Vertex v2)
-    {
-        VALIDATE(numVertices <= (maxBuffer - 3), "Insufficient triangle set");
-        for (int i = 0; i < 3; i++) Indices[numIndices++] = short(numVertices + i);
-        Vertices[numVertices++] = v0;
-        Vertices[numVertices++] = v1;
-        Vertices[numVertices++] = v2;
-    }
-
-    uint32_t ModifyColor(uint32_t c, XMFLOAT3 pos)
-    {
-#define GetLengthLocal(v)  (sqrt(v.x*v.x + v.y*v.y + v.z*v.z))
-        float dist1 = GetLengthLocal(XMFLOAT3(pos.x - (-2), pos.y - (4), pos.z - (-2)));
-        float dist2 = GetLengthLocal(XMFLOAT3(pos.x - (3), pos.y - (4), pos.z - (-3)));
-        float dist3 = GetLengthLocal(XMFLOAT3(pos.x - (-4), pos.y - (3), pos.z - (25)));
-        int   bri = rand() % 160;
-        float R = ((c >> 16) & 0xff) * (bri + 192.0f * (0.65f + 8 / dist1 + 1 / dist2 + 4 / dist3)) / 255.0f;
-        float G = ((c >> 8) & 0xff) * (bri + 192.0f * (0.65f + 8 / dist1 + 1 / dist2 + 4 / dist3)) / 255.0f;
-        float B = ((c >> 0) & 0xff) * (bri + 192.0f * (0.65f + 8 / dist1 + 1 / dist2 + 4 / dist3)) / 255.0f;
-        return((c & 0xff000000) + ((R > 255 ? 255 : (uint32_t)R) << 16) + ((G > 255 ? 255 : (uint32_t)G) << 8) + (B > 255 ? 255 : (uint32_t)B));
-    }
-
-    void AddSolidColorBox(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t c)
-    {
-        AddQuad(
-            Vertex(XMFLOAT3(x1, y2, z1), ModifyColor(c, XMFLOAT3(x1, y2, z1)), z1, x1),
-            Vertex(XMFLOAT3(x2, y2, z1), ModifyColor(c, XMFLOAT3(x2, y2, z1)), z1, x2),
-            Vertex(XMFLOAT3(x1, y2, z2), ModifyColor(c, XMFLOAT3(x1, y2, z2)), z2, x1),
-            Vertex(XMFLOAT3(x2, y2, z2), ModifyColor(c, XMFLOAT3(x2, y2, z2)), z2, x2));
-        AddQuad(
-            Vertex(XMFLOAT3(x2, y1, z1), ModifyColor(c, XMFLOAT3(x2, y1, z1)), z1, x2),
-            Vertex(XMFLOAT3(x1, y1, z1), ModifyColor(c, XMFLOAT3(x1, y1, z1)), z1, x1),
-            Vertex(XMFLOAT3(x2, y1, z2), ModifyColor(c, XMFLOAT3(x2, y1, z2)), z2, x2),
-            Vertex(XMFLOAT3(x1, y1, z2), ModifyColor(c, XMFLOAT3(x1, y1, z2)), z2, x1));
-        AddQuad(
-            Vertex(XMFLOAT3(x1, y1, z2), ModifyColor(c, XMFLOAT3(x1, y1, z2)), z2, y1),
-            Vertex(XMFLOAT3(x1, y1, z1), ModifyColor(c, XMFLOAT3(x1, y1, z1)), z1, y1),
-            Vertex(XMFLOAT3(x1, y2, z2), ModifyColor(c, XMFLOAT3(x1, y2, z2)), z2, y2),
-            Vertex(XMFLOAT3(x1, y2, z1), ModifyColor(c, XMFLOAT3(x1, y2, z1)), z1, y2));
-        AddQuad(
-            Vertex(XMFLOAT3(x2, y1, z1), ModifyColor(c, XMFLOAT3(x2, y1, z1)), z1, y1),
-            Vertex(XMFLOAT3(x2, y1, z2), ModifyColor(c, XMFLOAT3(x2, y1, z2)), z2, y1),
-            Vertex(XMFLOAT3(x2, y2, z1), ModifyColor(c, XMFLOAT3(x2, y2, z1)), z1, y2),
-            Vertex(XMFLOAT3(x2, y2, z2), ModifyColor(c, XMFLOAT3(x2, y2, z2)), z2, y2));
-        AddQuad(
-            Vertex(XMFLOAT3(x1, y1, z1), ModifyColor(c, XMFLOAT3(x1, y1, z1)), x1, y1),
-            Vertex(XMFLOAT3(x2, y1, z1), ModifyColor(c, XMFLOAT3(x2, y1, z1)), x2, y1),
-            Vertex(XMFLOAT3(x1, y2, z1), ModifyColor(c, XMFLOAT3(x1, y2, z1)), x1, y2),
-            Vertex(XMFLOAT3(x2, y2, z1), ModifyColor(c, XMFLOAT3(x2, y2, z1)), x2, y2));
-        AddQuad(
-            Vertex(XMFLOAT3(x2, y1, z2), ModifyColor(c, XMFLOAT3(x2, y1, z2)), x2, y1),
-            Vertex(XMFLOAT3(x1, y1, z2), ModifyColor(c, XMFLOAT3(x1, y1, z2)), x1, y1),
-            Vertex(XMFLOAT3(x2, y2, z2), ModifyColor(c, XMFLOAT3(x2, y2, z2)), x2, y2),
-            Vertex(XMFLOAT3(x1, y2, z2), ModifyColor(c, XMFLOAT3(x1, y2, z2)), x1, y2));
-    }
-
-
 };
 
 struct Transform
@@ -2288,159 +1981,17 @@ struct RTXBoxModel
     }
 };
 
-//----------------------------------------------------------------------
-struct Model
+struct Vertex
 {
-    static const int            NumEyes = 2;
-    XMFLOAT3                    Pos;
-    XMFLOAT4                    Rot;
-    Material* MaterialState;
-    DataBuffer* VertexBuffer;
-    DataBuffer* IndexBuffer;
-    int                         NumIndices;
+    XMFLOAT3 position;
+    XMFLOAT3 normal;
+    XMFLOAT2 uv;
 
-    ID3D12PipelineState* PipelineState;
-    D3D12_VERTEX_BUFFER_VIEW    VertexBufferView;
-    D3D12_INDEX_BUFFER_VIEW     IndexBufferView;
-
-    struct ModelConstants
+    Vertex(float x, float y, float z, float nx, float ny, float nz, float u, float v)
     {
-        XMFLOAT4X4  WorldViewProj;
-        XMFLOAT4    MasterColor;
-    };
-
-    // per-frame constant buffer data
-    struct FrameResources
-    {
-        ID3D12Resource* ConstantBuffer;
-        D3D12_CPU_DESCRIPTOR_HANDLE ConstantBufferHandle;
-        ModelConstants              ConstantBufferData;
-        UINT8* ConstantBufferMapPtr;
-    };
-    FrameResources PerFrameRes[DirectX12::SwapChainNumFrames][NumEyes];
-
-    void Init(TriangleSet* t)
-    {
-        NumIndices = t->numIndices;
-        VertexBuffer = new DataBuffer(DIRECTX.Device, &t->Vertices[0], t->numVertices * sizeof(Vertex));
-        IndexBuffer = new DataBuffer(DIRECTX.Device, &t->Indices[0], t->numIndices * sizeof(short));
-
-        // Initialize vertex buffer view
-        VertexBufferView.BufferLocation = VertexBuffer->D3DBuffer->GetGPUVirtualAddress();
-        VertexBufferView.StrideInBytes = sizeof(Vertex);
-        VertexBufferView.SizeInBytes = (UINT)VertexBuffer->BufferSize;
-
-        // Initialize index buffer view
-        IndexBufferView.BufferLocation = IndexBuffer->D3DBuffer->GetGPUVirtualAddress();
-        IndexBufferView.Format = DXGI_FORMAT_R16_UINT;
-        IndexBufferView.SizeInBytes = (UINT)IndexBuffer->BufferSize;
-
-        for (int frameIdx = 0; frameIdx < DirectX12::SwapChainNumFrames; frameIdx++)
-        {
-            for (int eye = 0; eye < NumEyes; eye++)
-            {
-                FrameResources& frameRes = PerFrameRes[frameIdx][eye];
-
-                CD3DX12_HEAP_PROPERTIES heapProp(D3D12_HEAP_TYPE_UPLOAD);
-                CD3DX12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Buffer(1024 * 64);
-                HRESULT hr = DIRECTX.Device->CreateCommittedResource(
-                    &heapProp,
-                    D3D12_HEAP_FLAG_NONE,
-                    &resDesc,
-                    D3D12_RESOURCE_STATE_GENERIC_READ,
-                    nullptr,
-                    IID_PPV_ARGS(&frameRes.ConstantBuffer));
-                VALIDATE((hr == ERROR_SUCCESS), "CommandQueue Signal failed");
-
-                // Describe and create a constant buffer view.
-                D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
-                cbvDesc.BufferLocation = frameRes.ConstantBuffer->GetGPUVirtualAddress();
-                // CB size is required to be 256-byte aligned.
-                cbvDesc.SizeInBytes = (sizeof(ModelConstants) + (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT - 1)) & ~(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT - 1);
-                frameRes.ConstantBufferHandle = DIRECTX.CbvSrvHandleProvider.AllocCpuHandle();
-                DIRECTX.Device->CreateConstantBufferView(&cbvDesc, frameRes.ConstantBufferHandle);
-
-                hr = frameRes.ConstantBuffer->Map(0, nullptr, reinterpret_cast<void**>(&frameRes.ConstantBufferMapPtr));
-                VALIDATE((hr == ERROR_SUCCESS), "Constant Buffer Map failed");
-                ZeroMemory(&frameRes.ConstantBufferData, sizeof(ModelConstants));
-                memcpy(frameRes.ConstantBufferMapPtr, &frameRes.ConstantBufferData, sizeof(ModelConstants));
-            }
-        }
-    }
-
-    Model(TriangleSet* t, XMFLOAT3 argPos, XMFLOAT4 argRot, Material* argMaterial) :
-        Pos(argPos),
-        Rot(argRot),
-        MaterialState(argMaterial)
-    {
-        Init(t);
-    }
-
-    // 2D scenes, for latency tester and full screen copies, etc
-    Model(Material* mat, float minx, float miny, float maxx, float maxy, float zDepth = 0) :
-        Pos(XMFLOAT3(0, 0, 0)),
-        Rot(XMFLOAT4(0, 0, 0, 1)),
-        MaterialState(mat)
-    {
-        TriangleSet quad;
-        quad.AddQuad(
-            Vertex(XMFLOAT3(minx, miny, zDepth), 0xffffffff, 0, 1),
-            Vertex(XMFLOAT3(minx, maxy, zDepth), 0xffffffff, 0, 0),
-            Vertex(XMFLOAT3(maxx, miny, zDepth), 0xffffffff, 1, 1),
-            Vertex(XMFLOAT3(maxx, maxy, zDepth), 0xffffffff, 1, 0));
-        Init(&quad);
-    }
-
-    ~Model()
-    {
-        for (int i = 0; i < DirectX12::SwapChainNumFrames; ++i)
-        {
-            for (int j = 0; j < NumEyes; ++j)
-            {
-                if (PerFrameRes[i][j].ConstantBuffer)
-                {
-                    Release(PerFrameRes[i][j].ConstantBuffer);
-                    DIRECTX.CbvSrvHandleProvider.FreeCpuHandle(CD3DX12_CPU_DESCRIPTOR_HANDLE(PerFrameRes[i][j].ConstantBufferHandle));
-                }
-            }
-        }
-
-        delete MaterialState; MaterialState = nullptr;
-        delete VertexBuffer; VertexBuffer = nullptr;
-        delete IndexBuffer; IndexBuffer = nullptr;
-    }
-
-    void Render(XMMATRIX* projView, float R, float G, float B, float A, bool standardUniforms)
-    {
-        DirectX12::SwapChainFrameResources& currFrameRes = DIRECTX.CurrentFrameResources();
-        FrameResources& currConstantRes = PerFrameRes[DIRECTX.SwapChainFrameIndex][DIRECTX.ActiveEyeIndex];
-
-        if (standardUniforms)
-        {
-            XMMATRIX modelMat = XMMatrixMultiply(XMMatrixRotationQuaternion(XMLoadFloat4(&Rot)), XMMatrixTranslationFromVector(XMLoadFloat3(&Pos)));
-            XMMATRIX mat = XMMatrixMultiply(modelMat, *projView);
-            XMStoreFloat4x4(&currConstantRes.ConstantBufferData.WorldViewProj, mat);
-            currConstantRes.ConstantBufferData.MasterColor = XMFLOAT4(R, G, B, A);
-
-            memcpy(currConstantRes.ConstantBufferMapPtr + 0, &currConstantRes.ConstantBufferData, sizeof(ModelConstants));
-        }
-
-        auto activeCmdList = currFrameRes.CommandLists[DIRECTX.ActiveContext];
-
-        activeCmdList->SetGraphicsRootSignature(MaterialState->RootSignature);
-        activeCmdList->SetPipelineState(MaterialState->PipelineState);
-
-        CD3DX12_GPU_DESCRIPTOR_HANDLE srvGpuHandle(DIRECTX.CbvSrvHandleProvider.GpuHandleFromCpuHandle(MaterialState->Tex->SrvHandle));
-        activeCmdList->SetGraphicsRootDescriptorTable(0, srvGpuHandle);
-
-        CD3DX12_GPU_DESCRIPTOR_HANDLE constantBufferGpuhandle(DIRECTX.CbvSrvHandleProvider.GpuHandleFromCpuHandle(currConstantRes.ConstantBufferHandle));
-        activeCmdList->SetGraphicsRootDescriptorTable(1, constantBufferGpuhandle);
-
-        activeCmdList->IASetIndexBuffer(&IndexBufferView);
-        activeCmdList->IASetVertexBuffers(0, 1, &VertexBufferView);
-        activeCmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        activeCmdList->DrawIndexedInstanced(IndexBufferView.SizeInBytes / sizeof(short), 1, 0, 0, 0);
+        position = { x, y, z };
+        normal = { nx, ny, nz };
+        uv = { u, v };
     }
 };
 
@@ -2448,15 +1999,6 @@ struct Model
 //-------------------------------------------------------------------------
 struct Scene
 {
-    static const int MAX_MODELS = 100;
-    Model* Models[MAX_MODELS];
-    int numModels;
-
-    void Add(Model* n)
-    {
-        if (numModels < MAX_MODELS)
-            Models[numModels++] = n;
-    }
     struct TextureData
     {
         UINT width;
@@ -2515,7 +2057,7 @@ struct Scene
         };
 
 
-        DirectX12::RTXVertex vertices[] =
+        Vertex vertices[] =
         {
             // Back face
             { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 0.0f},
@@ -2579,9 +2121,9 @@ struct Scene
         geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
         geometryDesc.Triangles.Transform3x4 = 0;
         geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geometryDesc.Triangles.VertexCount = static_cast<UINT>(m_vertexBuffer.resource->GetDesc().Width) / (sizeof(DirectX12::RTXVertex));
+        geometryDesc.Triangles.VertexCount = static_cast<UINT>(m_vertexBuffer.resource->GetDesc().Width) / (sizeof(Vertex));
         geometryDesc.Triangles.VertexBuffer.StartAddress = m_vertexBuffer.resource->GetGPUVirtualAddress();
-        geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(DirectX12::RTXVertex));
+        geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(Vertex));
 
         // Mark the geometry as opaque. 
         // PERFORMANCE TIP: mark geometry as opaque whenever applicable as it can enable important ray processing optimizations.
@@ -2757,12 +2299,6 @@ struct Scene
        DispatchRays(currFrameRes.m_dxrCommandList[DIRECTX.ActiveContext].Get(), DIRECTX.m_dxrStateObject.Get(), &dispatchDesc);
     }
 
-    void Render(XMMATRIX* projView, float R, float G, float B, float A, bool standardUniforms)
-    {
-        for (int i = 0; i < numModels; ++i)
-            Models[i]->Render(projView, R, G, B, A, standardUniforms);
-    }
-
     void Init(bool includeIntensiveGPUobject)
     {
         CreateConstantBuffers();
@@ -2773,29 +2309,11 @@ struct Scene
 
         transforms.push_back(Transform(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
-        //TriangleSet cube;
-        //cube.AddSolidColorBox(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040);
-        //Add(
-        //    new Model(&cube, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-        //        new Material(
-        //            new Texture(false, 256, 256, Texture::AUTO_CEILING)
-        //        )
-        //    )
-        //);
         
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(Transform(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
-        //TriangleSet spareCube;
-        //spareCube.AddSolidColorBox(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000);
-        //Add(
-        //    new Model(&spareCube, XMFLOAT3(0, -10, 0), XMFLOAT4(0, 0, 0, 1),
-        //        new Material(
-        //            new Texture(false, 256, 256, Texture::AUTO_CEILING)
-        //        )
-        //    )
-        //);
 
 
         numInstances += transforms.size();
@@ -2804,63 +2322,18 @@ struct Scene
         transforms.push_back(Transform(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
         transforms.push_back(Transform(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
         models.push_back(RTXBoxModel(transforms, RTXMaterial((UINT)Texture::AUTO_WALL - 1)));
-        //TriangleSet walls;
-        //walls.AddSolidColorBox(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080);  // Left Wall
-        //walls.AddSolidColorBox(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080); // Back Wall
-        //walls.AddSolidColorBox(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080);   // Right Wall
-        //Add(
-        //    new Model(&walls, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-        //        new Material(
-        //            new Texture(false, 256, 256, Texture::AUTO_WALL)
-        //        )
-        //    )
-        //);
-
-        //if (includeIntensiveGPUobject)
-        //{
-        //    TriangleSet partitions;
-        //    for (float depth = 0.0f; depth > -3.0f; depth -= 0.1f)
-        //        partitions.AddSolidColorBox(9.0f, 0.5f, -depth, -9.0f, 3.5f, -depth, 0x10ff80ff); // Partition
-
-        //    Add(
-        //        new Model(&partitions, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-        //            new Material(
-        //                new Texture(false, 256, 256, Texture::AUTO_FLOOR)
-        //            )
-        //        )
-        //    ); // Floors
-        //}
 
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(Transform(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
         transforms.push_back(Transform(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_FLOOR - 1)));
-        //TriangleSet floors;
-        //floors.AddSolidColorBox(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080); // Main floor
-        //floors.AddSolidColorBox(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080); // Bottom floor
-        //Add(
-        //    new Model(&floors, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-        //        new Material(
-        //            new Texture(false, 256, 256, Texture::AUTO_FLOOR)
-        //        )
-        //    )
-        //); // Floors
 
 
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(Transform(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
-        //TriangleSet ceiling;
-        //ceiling.AddSolidColorBox(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080);
-        //Add(
-        //    new Model(&ceiling, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-        //        new Material(
-        //            new Texture(false, 256, 256, Texture::AUTO_CEILING)
-        //        )
-        //    )
-        //); // Ceiling
 
 
         numInstances += transforms.size();
@@ -2891,13 +2364,6 @@ struct Scene
             transforms.push_back(Transform(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
 
         models.push_back(RTXBoxModel(transforms, RTXMaterial(Texture::AUTO_WHITE - 1)));
-        //Add(
-        //    new Model(&furniture, XMFLOAT3(0, 0, 0), XMFLOAT4(0, 0, 0, 1),
-        //        new Material(
-        //            new Texture(false, 256, 256, Texture::AUTO_WHITE)
-        //        )
-        //    )
-        //); // Fixtures & furniture
         numInstances += transforms.size();
         BuildAccelerationStructures(models);
     }
@@ -2942,16 +2408,15 @@ struct Scene
         ThrowIfFailed(m_perFrameConstants[1]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[1])));
     }
 
-    Scene() : numModels(0) {}
+    Scene() : numInstances(0) {}
     Scene(bool includeIntensiveGPUobject) :
-        numModels(0)
+        numInstances(0)
     {
         Init(includeIntensiveGPUobject);
     }
     void Release()
     {
-        while (numModels-- > 0)
-            delete Models[numModels];
+
     }
     ~Scene()
     {
