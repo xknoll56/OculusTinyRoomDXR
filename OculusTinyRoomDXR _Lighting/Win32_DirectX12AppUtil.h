@@ -2291,12 +2291,13 @@ struct Scene
                 float x = boxModels[i].components[j].transform.m[0][0];
                 float y = boxModels[i].components[j].transform.m[1][1];
                 float z = boxModels[i].components[j].transform.m[2][2];
-                instanceDescsArray[index].Transform[0][0] = x;
-                instanceDescsArray[index].Transform[1][1] = y;
-                instanceDescsArray[index].Transform[2][2] = z;
-                instanceDescsArray[index].Transform[0][3] = boxModels[i].components[j].transform.m[0][3];
-                instanceDescsArray[index].Transform[1][3] = boxModels[i].components[j].transform.m[1][3];
-                instanceDescsArray[index].Transform[2][3] = boxModels[i].components[j].transform.m[2][3];
+                for (int x = 0; x < 3; x++)
+                {
+                    for (int y = 0; y < 4; y++)
+                    {
+                        instanceDescsArray[index].Transform[x][y] = boxModels[i].components[j].transform.m[x][y];
+                    }
+                }
                 instanceDescsArray[index].InstanceMask = 1;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();

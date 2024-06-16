@@ -189,6 +189,17 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     float3 hitPoint = payload.origin + payload.direction * payload.depth;
     float3 lightDir = normalize(g_sceneCB.lights[0].position - hitPoint);
     
+    // Access the instance transformation matrix
+    float3x4 instanceTransform = ObjectToWorld3x4();
+
+    // Extract the 3x3 rotation matrix from the 3x4 transformation matrix and transpose it
+    float3x3 rotationMatrix;
+    rotationMatrix[0] = float3(instanceTransform[0].x, instanceTransform[1].x, instanceTransform[2].x);
+    rotationMatrix[1] = float3(instanceTransform[0].y, instanceTransform[1].y, instanceTransform[2].y);
+    rotationMatrix[2] = float3(instanceTransform[0].z, instanceTransform[1].z, instanceTransform[2].z);
+    
+    triangleNormal = normalize(mul(triangleNormal, rotationMatrix));
+    
     // Diffuse
     float NdotL = max(dot(triangleNormal, lightDir), 0.0);
     
