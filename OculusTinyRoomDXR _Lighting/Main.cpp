@@ -254,6 +254,9 @@ static bool MainLoop(bool retryCreate)
 
     ovrHmdDesc hmdDesc = ovr_GetHmdDesc(session);
 
+    ovrTrackingOrigin origin = ovrTrackingOrigin_FloorLevel;
+    ovr_SetTrackingOriginType(session, origin);
+
     // Setup Device and Graphics
     // Note: the mirror window can be any size, for this sample we use 1/2 the HMD resolution
     ovrSizei idealSize = ovr_GetFovTextureSize(session, (ovrEyeType)0, hmdDesc.DefaultEyeFov[0], 1.0f);
@@ -322,7 +325,7 @@ static bool MainLoop(bool retryCreate)
     
     // Create camera
     static float Yaw = XM_PI;
-    mainCam = new Camera(XMVectorSet(0.0f, 2.0f, -10.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
+    mainCam = new Camera(XMVectorSet(0.0f, 0.0f, -10.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
 
     DIRECTX.InitFrame(drawMirror);
 
@@ -397,6 +400,52 @@ static bool MainLoop(bool retryCreate)
 
             double sensorSampleTime;    // sensorSampleTime is fed into the layer later
             ovr_GetEyePoses(session, frameIndex, ovrTrue, HmdToEyePose, EyeRenderPose, &sensorSampleTime);
+
+            ovrTrackingState ts = ovr_GetTrackingState(session, ovr_GetTimeInSeconds(), ovrTrue);
+
+            if (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked)) {
+                ovrPosef leftControllerPose = ts.HandPoses[ovrHand_Left].ThePose;
+                ovrPosef rightControllerPose = ts.HandPoses[ovrHand_Right].ThePose;
+
+                // Extract position and orientation
+                ovrVector3f leftControllerPosition = leftControllerPose.Position;
+                ovrQuatf leftControllerOrientation = leftControllerPose.Orientation;
+
+                ovrVector3f rightControllerPosition = rightControllerPose.Position;
+                ovrQuatf rightControllerOrientation = rightControllerPose.Orientation;
+
+                // Update the laft hand position and orientation
+                XMVECTOR posVec = { leftControllerPosition.x, leftControllerPosition.y, leftControllerPosition.z, 0 };
+                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
+
+                XMVECTOR handQuat = XMVectorSet(leftControllerOrientation.x, leftControllerOrientation.y,
+                    leftControllerOrientation.z, leftControllerOrientation.w);
+
+                XMVECTOR scaleFactors = XMVectorSet(0.1f, 0.01f, 0.2f, 1.0f);
+
+                XMMATRIX translationMatrix = XMMatrixTranslationFromVector(posVec);
+                XMMATRIX rotationMatrix = XMMatrixRotationQuaternion(XMQuaternionMultiply(handQuat, mainCamRot));
+                XMMATRIX scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
+                XMMATRIX transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
+
+                roomScene->UpdateInstanceTransform(1, transformationMatrix);
+
+                // Now update the right hand
+                posVec = { rightControllerPosition.x, rightControllerPosition.y, rightControllerPosition.z, 0 };
+                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
+
+                handQuat = XMVectorSet(rightControllerOrientation.x, rightControllerOrientation.y,
+                    rightControllerOrientation.z, rightControllerOrientation.w);
+
+                scaleFactors = XMVectorSet(0.1f, 0.01f, 0.2f, 1.0f);
+
+                translationMatrix = XMMatrixTranslationFromVector(posVec);
+                rotationMatrix = XMMatrixRotationQuaternion(XMQuaternionMultiply(handQuat, mainCamRot));
+                scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
+                transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
+
+                roomScene->UpdateInstanceTransform(2, transformationMatrix);
+            }
 
             ovrTimewarpProjectionDesc PosTimewarpProjectionDesc = {};
 

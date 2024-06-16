@@ -2221,6 +2221,17 @@ struct Scene
         instanceDescsArray[instanceIndex].Transform[2][3] = position.z;
     }
 
+    void UpdateInstanceTransform(UINT instanceIndex, XMMATRIX transformMatrix)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 4; j++)
+            {
+                instanceDescsArray[instanceIndex].Transform[i][j] = transformMatrix.r[j].m128_f32[i];
+            }
+        }
+    }
+
     void UpdateInstanceDescs()
     {
         DIRECTX.UpdateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances * sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs);
@@ -2421,8 +2432,9 @@ struct Scene
         
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(ModelComponent(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000));
-        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
 
 
         numInstances += transforms.size();

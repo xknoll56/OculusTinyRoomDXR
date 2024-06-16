@@ -170,7 +170,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     float4 color = sampledColor * instanceColor;
     
     // Diffuse
-    float NdotL = max(dot(triangleNormal, float3(0.2, 0.7, 0.4)), 0.0);
+    float NdotL = max(dot(triangleNormal, float3(0.3, 0.7, 0.5)), 0.0);
     //float3 diffuse = 0.5 * NdotL;
     
     payload.color = (sampledColor * instanceColor) * (0.5 * NdotL + 0.3f);
