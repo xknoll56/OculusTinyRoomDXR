@@ -33,6 +33,14 @@ struct InstanceData
     float v;
     float3 color;
 };
+
+struct Light
+{
+    float3 position;
+    float3 color;
+    float intensity;
+};
+
 #define MAX_INSTANCES 400
 
 struct SceneConstantBuffer
@@ -40,6 +48,7 @@ struct SceneConstantBuffer
     float4x4 projectionToWorld;
     float4 eyePosition;  
     InstanceData instanceData[MAX_INSTANCES];
+    Light lights[4];
     Texture texture[6];
 };
 
@@ -68,6 +77,8 @@ struct RayPayload
 {
     float4 color;
     float depth;
+    float3 origin;
+    float3 direction;
 };
 
 // Generate a ray in world space for a camera pixel corresponding to an index from the dispatched 2D grid.
@@ -106,7 +117,7 @@ void MyRaygenShader()
     // TMin should be kept small to prevent missing geometry at close contact areas.
     ray.TMin = 0.001;
     ray.TMax = 10000.0;
-    RayPayload payload = { float4(0, 0, 0, 0), 0};
+    RayPayload payload = { float4(0, 0, 0, 0), 0, ray.Origin, ray.Direction};
     TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
 
     // Write the raytraced color to the output texture.
@@ -169,14 +180,19 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     float4 instanceColor = saturate(float4(g_sceneCB.instanceData[InstanceID()].color, 1.0f) * 2.0f);
     float4 color = sampledColor * instanceColor;
     
-    // Diffuse
-    float NdotL = max(dot(triangleNormal, float3(0.3, 0.7, 0.5)), 0.0);
+
     //float3 diffuse = 0.5 * NdotL;
     
-    payload.color = (sampledColor * instanceColor) * (0.5 * NdotL + 0.3f);
-
      // Calculate depth as the distance from the eye position to the hit point
     payload.depth = RayTCurrent();
+    
+    float3 hitPoint = payload.origin + payload.direction * payload.depth;
+    float3 lightDir = normalize(g_sceneCB.lights[0].position - hitPoint);
+    
+    // Diffuse
+    float NdotL = max(dot(triangleNormal, lightDir), 0.0);
+    
+    payload.color = (sampledColor * instanceColor) * (0.5 * NdotL + 0.3f);
 }
 
 [shader("miss")]

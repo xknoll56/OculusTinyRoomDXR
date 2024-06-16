@@ -756,7 +756,7 @@ struct DirectX12
         // Shader config
         // Defines the maximum sizes in bytes for the ray payload and attribute structure.
         auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
-        UINT payloadSize = 5 * sizeof(float);   // float4 color, float depth
+        UINT payloadSize = 11 * sizeof(float);   // float4 color, float depth, float3 origin, float3 direction
         UINT attributeSize = 2 * sizeof(float); // float2 barycentrics
         shaderConfig->Config(payloadSize, attributeSize);
 
@@ -1566,7 +1566,7 @@ struct DirectX12
             // Wait until the previous frame is finished.
             if (currFrameRes.PresentFenceWaitValue != -1) // -1 means we never kicked off this frame
             {
-                WaitForSingleObject(currFrameRes.PresentFenceEvent, 10000);
+                WaitForSingleObject(currFrameRes.PresentFenceEvent, INFINITE);
             }
 
 
@@ -1629,6 +1629,7 @@ struct DirectX12
 
             WaitForPreviousFrame();
         }
+
 
         InitFrame(finalContextUsed);
     }
@@ -2190,11 +2191,19 @@ struct Scene
         XMFLOAT4 color;
     };
 
+    struct Light
+    {
+        XMVECTOR position;
+        XMFLOAT3 color;
+        float intensity;
+    };
+
     struct alignas(256) SceneConstantBuffer
     {
         XMMATRIX projectionToWorld;
         XMVECTOR eyePosition;
         InstanceData instanceData[MAX_INSTANCES];
+        Light lights[4];
         TextureData textureResources[Texture::numTextures];
     };
 
@@ -2203,6 +2212,7 @@ struct Scene
     SceneConstantBuffer m_sceneCB[2][DIRECTX.SwapChainNumFrames];
     InstanceData instanceData[MAX_INSTANCES];
     UINT numInstances;
+    Light lights[4];
 
     VertexBuffer boxVertexBuffer;
 
@@ -2402,6 +2412,7 @@ struct Scene
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].width = 256;
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].height = 256;
         memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].instanceData[0], &instanceData[0], numInstances * sizeof(InstanceData));
+        memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].lights[0], &lights[0], 4 * sizeof(Light));
 
         // Copy the updated scene constant buffer to GPU.
         memcpy(&m_mappedConstantData[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], &m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], 

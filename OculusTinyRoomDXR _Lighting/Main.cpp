@@ -373,8 +373,8 @@ static bool MainLoop(bool retryCreate)
             result = ovr_GetInputState(session, ovrControllerType_Touch, &inputState);
             float thumbstickX = inputState.Thumbstick[ovrHand_Left].x;
             float thumbstickY = inputState.Thumbstick[ovrHand_Left].y;
-            mainCamPos = XMVectorAdd(mainCamPos, XMVectorScale(forward, thumbstickY));
-            mainCamPos = XMVectorAdd(mainCamPos, XMVectorScale(right, thumbstickX));
+            XMVECTOR movement = XMVectorAdd(XMVectorScale(forward, thumbstickY), XMVectorScale(right, thumbstickX));
+            mainCamPos = XMVectorAdd(mainCamPos, movement);
             
             if (DIRECTX.Key[VK_LEFT])  mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw += 0.02f, 0);
             if (DIRECTX.Key[VK_RIGHT]) mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw -= 0.02f, 0);
@@ -387,7 +387,13 @@ static bool MainLoop(bool retryCreate)
             // Animate the cube
             static float cubeClock = 0;
             if (sessionStatus.HasInputFocus) // Pause the application if we are not supposed to have input..
-                 roomScene->UpdateInstancePosition(0, XMFLOAT3(9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.015f)));
+            {
+                XMVECTOR cubePos = { 9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.015f), 0 };
+                XMFLOAT3 cubePosAsFloat3;
+                XMStoreFloat3(&cubePosAsFloat3, cubePos);
+                roomScene->UpdateInstancePosition(0, cubePosAsFloat3);
+                roomScene->lights[0].position = cubePos;
+            }
 
             // Call ovr_GetRenderDesc each frame to get the ovrEyeRenderDesc, as the returned values (e.g. HmdToEyePose) may change at runtime.
             ovrEyeRenderDesc eyeRenderDesc[2];
@@ -416,7 +422,7 @@ static bool MainLoop(bool retryCreate)
 
                 // Update the laft hand position and orientation
                 XMVECTOR posVec = { leftControllerPosition.x, leftControllerPosition.y, leftControllerPosition.z, 0 };
-                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
+                posVec = XMVectorAdd(XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot)), movement);
 
                 XMVECTOR handQuat = XMVectorSet(leftControllerOrientation.x, leftControllerOrientation.y,
                     leftControllerOrientation.z, leftControllerOrientation.w);
@@ -432,7 +438,7 @@ static bool MainLoop(bool retryCreate)
 
                 // Now update the right hand
                 posVec = { rightControllerPosition.x, rightControllerPosition.y, rightControllerPosition.z, 0 };
-                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
+                posVec = XMVectorAdd(XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot)), movement);
 
                 handQuat = XMVectorSet(rightControllerOrientation.x, rightControllerOrientation.y,
                     rightControllerOrientation.z, rightControllerOrientation.w);

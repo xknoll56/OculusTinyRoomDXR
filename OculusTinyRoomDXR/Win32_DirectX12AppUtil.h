@@ -1566,7 +1566,7 @@ struct DirectX12
             // Wait until the previous frame is finished.
             if (currFrameRes.PresentFenceWaitValue != -1) // -1 means we never kicked off this frame
             {
-                WaitForSingleObject(currFrameRes.PresentFenceEvent, 10000);
+                WaitForSingleObject(currFrameRes.PresentFenceEvent, INFINITE);
             }
 
 
