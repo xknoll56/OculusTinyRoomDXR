@@ -1905,15 +1905,15 @@ public:
 };
 
 //-----------------------------------------------------
-struct RTXMaterial
+struct Material
 {
     UINT TexIndex;
 
-    RTXMaterial()
+    Material()
     {
         this->TexIndex = 0;
     }
-    RTXMaterial(UINT TexIndex)
+    Material(UINT TexIndex)
     {
         this->TexIndex = TexIndex;
     }
@@ -2154,11 +2154,11 @@ struct VertexBuffer
 struct Model
 {
     std::vector<ModelComponent> components;
-    RTXMaterial material;
+    Material material;
     VertexBuffer* pVertexBuffer;
     
 
-    Model(std::vector<ModelComponent> components, RTXMaterial material)
+    Model(std::vector<ModelComponent> components, Material material)
     {
         this->components = components;
         this->material = material;
@@ -2364,12 +2364,12 @@ struct Scene
         numInstances = 0;
 
         transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
-        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
         
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(ModelComponent(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000));
-        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
 
 
         numInstances += transforms.size();
@@ -2377,19 +2377,19 @@ struct Scene
         transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
         transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
         transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
-        models.push_back(Model(transforms, RTXMaterial((UINT)Texture::AUTO_WALL - 1)));
+        models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1)));
 
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
         transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
-        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_FLOOR - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
 
         numInstances += transforms.size();
         transforms.clear();
         transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
-        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
 
 
         numInstances += transforms.size();
@@ -2419,7 +2419,7 @@ struct Scene
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
             transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
 
-        models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_WHITE - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
         numInstances += transforms.size();
         BuildAccelerationStructures(models);
     }
