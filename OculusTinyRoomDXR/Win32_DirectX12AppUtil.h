@@ -214,6 +214,15 @@ static void ThrowIfFailed(HRESULT hr, const wchar_t* message = L"")
     }
 }
 
+static void ThrowIfFalse(bool condition)
+{
+
+    if (!condition)
+    {
+        exit(1);
+    }
+}
+
 
 //---------------------------------------------------------------------
 struct DirectX12
@@ -1913,7 +1922,7 @@ struct RTXMaterial
     }
 };
 
-struct Transform
+struct ModelComponent
 {
     XMFLOAT3X4 transform;
     XMFLOAT4 color;
@@ -1932,7 +1941,7 @@ struct Transform
         }
     }
 
-    Transform()
+    ModelComponent()
     {
         SetIdentity();
     }
@@ -1963,26 +1972,13 @@ struct Transform
         this->color.w = 1.0f;
     }
 
-    Transform(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color)
+    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color)
     {
         SetIdentity();
         SetAsBox(x1, y1, z1, x2, y2, z2);
         GetNormalizedRGB(color);
     }
 
-};
-
-struct Model
-{
-    std::vector<Transform> transforms;
-    RTXMaterial material;
-    
-
-    Model(std::vector<Transform> transforms, RTXMaterial material)
-    {
-        this->transforms = transforms;
-        this->material = material;
-    }
 };
 
 struct Vertex
@@ -1999,46 +1995,14 @@ struct Vertex
     }
 };
 
-#define MAX_INSTANCES 400
-//-------------------------------------------------------------------------
-struct Scene
+struct VertexBuffer
 {
-    struct TextureData
+    DirectX12::D3DBuffer indexBuffer;
+    DirectX12::D3DBuffer vertexBuffer;
+
+    void InitBox()
     {
-        UINT width;
-        UINT height;
-    };
 
-    struct InstanceData
-    {
-        UINT textureId;
-        float u;
-        float v;
-        float padding;
-        XMFLOAT4 color;
-    };
-
-    struct alignas(256) SceneConstantBuffer
-    {
-        XMMATRIX projectionToWorld;
-        XMVECTOR eyePosition;
-        InstanceData instanceData[MAX_INSTANCES];
-        TextureData textureResources[Texture::numTextures];
-    };
-
-    SceneConstantBuffer* m_mappedConstantData[2];
-    ComPtr<ID3D12Resource>       m_perFrameConstants[2];
-    SceneConstantBuffer m_sceneCB[2][DIRECTX.SwapChainNumFrames];
-    InstanceData instanceData[MAX_INSTANCES];
-    UINT numInstances;
-
-    DirectX12::D3DBuffer m_indexBuffer;
-    DirectX12::D3DBuffer m_vertexBuffer;
-
-
-    // Build geometry used in the sample.
-    void BuildGeometry()
-    {
         UINT indices[] =
         {
             0, 2, 1,
@@ -2100,33 +2064,79 @@ struct Scene
             { -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f  ,0.0f, 1.0f},
         };
 
-        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, vertices, sizeof(vertices), &m_vertexBuffer.resource);
-        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, indices, sizeof(indices), &m_indexBuffer.resource);
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, vertices, sizeof(vertices), &vertexBuffer.resource);
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, indices, sizeof(indices), &indexBuffer.resource);
 
         // Vertex buffer is passed to the shader along with index buffer as a descriptor table.
         // Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
-        UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&m_indexBuffer, sizeof(indices) / 4, 0);
-        UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&m_vertexBuffer, ARRAYSIZE(vertices), sizeof(vertices[0]));
-        if (!(descriptorIndexVB == descriptorIndexIB + 1, L"Vertex Buffer descriptor index must follow that of Index Buffer descriptor index!"))
-            exit(1);
+        UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&indexBuffer, sizeof(indices) / 4, 0);
+        UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, ARRAYSIZE(vertices), sizeof(vertices[0]));
+        ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
     }
+};
 
+struct Model
+{
+    std::vector<ModelComponent> components;
+    RTXMaterial material;
+    VertexBuffer* pVertexBuffer;
+    
+
+    Model(std::vector<ModelComponent> components, RTXMaterial material)
+    {
+        this->components = components;
+        this->material = material;
+    }
+};
+
+#define MAX_INSTANCES 400
+//-------------------------------------------------------------------------
+struct Scene
+{
+    struct TextureData
+    {
+        UINT width;
+        UINT height;
+    };
+
+    struct InstanceData
+    {
+        UINT textureId;
+        XMFLOAT3 uvx;
+        XMFLOAT4 color;
+    };
+
+    struct alignas(256) SceneConstantBuffer
+    {
+        XMMATRIX projectionToWorld;
+        XMVECTOR eyePosition;
+        InstanceData instanceData[MAX_INSTANCES];
+        TextureData textureResources[Texture::numTextures];
+    };
+
+    SceneConstantBuffer* m_mappedConstantData[2];
+    ComPtr<ID3D12Resource>       m_perFrameConstants[2];
+    SceneConstantBuffer m_sceneCB[2][DIRECTX.SwapChainNumFrames];
+    InstanceData instanceData[MAX_INSTANCES];
+    UINT numInstances;
+
+    VertexBuffer boxVertexBuffer;
     // Build acceleration structures needed for raytracing.
     void BuildAccelerationStructures(std::vector<Model> boxModels)
     {
-
+        boxVertexBuffer.InitBox();
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
         D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
         geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geometryDesc.Triangles.IndexBuffer = m_indexBuffer.resource->GetGPUVirtualAddress();
-        geometryDesc.Triangles.IndexCount = static_cast<UINT>(m_indexBuffer.resource->GetDesc().Width) / sizeof(UINT);
+        geometryDesc.Triangles.IndexBuffer = boxVertexBuffer.indexBuffer.resource->GetGPUVirtualAddress();
+        geometryDesc.Triangles.IndexCount = static_cast<UINT>(boxVertexBuffer.indexBuffer.resource->GetDesc().Width) / sizeof(UINT);
         geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
         geometryDesc.Triangles.Transform3x4 = 0;
         geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geometryDesc.Triangles.VertexCount = static_cast<UINT>(m_vertexBuffer.resource->GetDesc().Width) / (sizeof(Vertex));
-        geometryDesc.Triangles.VertexBuffer.StartAddress = m_vertexBuffer.resource->GetGPUVirtualAddress();
+        geometryDesc.Triangles.VertexCount = static_cast<UINT>(boxVertexBuffer.vertexBuffer.resource->GetDesc().Width) / (sizeof(Vertex));
+        geometryDesc.Triangles.VertexBuffer.StartAddress = boxVertexBuffer.vertexBuffer.resource->GetGPUVirtualAddress();
         geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(Vertex));
 
         // Mark the geometry as opaque. 
@@ -2144,8 +2154,7 @@ struct Scene
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo = {};
         DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&topLevelInputs, &topLevelPrebuildInfo);
-        if (!(topLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
-            exit(1);
+        ThrowIfFalse(topLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
 
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = {};
         bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
@@ -2156,8 +2165,7 @@ struct Scene
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
         DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
-        if (!(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0))
-            exit(1);
+        ThrowIfFalse(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
 
         ID3D12Resource* scratchResource;
         DIRECTX.AllocateUAVBuffer(DIRECTX.Device, max(topLevelPrebuildInfo.ScratchDataSizeInBytes, bottomLevelPrebuildInfo.ScratchDataSizeInBytes), &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
@@ -2181,38 +2189,38 @@ struct Scene
         D3D12_RAYTRACING_INSTANCE_DESC* instanceDescsArray = new D3D12_RAYTRACING_INSTANCE_DESC[numInstances];
         UINT index = 0;
         for (int i = 0; i < boxModels.size(); ++i) {
-            for (int j = 0; j < boxModels[i].transforms.size(); j++)
+            for (int j = 0; j < boxModels[i].components.size(); j++)
             {
                 instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
-                float x = boxModels[i].transforms[j].transform.m[0][0];
-                float y = boxModels[i].transforms[j].transform.m[1][1];
-                float z = boxModels[i].transforms[j].transform.m[2][2];
+                float x = boxModels[i].components[j].transform.m[0][0];
+                float y = boxModels[i].components[j].transform.m[1][1];
+                float z = boxModels[i].components[j].transform.m[2][2];
                 instanceDescsArray[index].Transform[0][0] = x;
                 instanceDescsArray[index].Transform[1][1] = y;
                 instanceDescsArray[index].Transform[2][2] = z;
-                instanceDescsArray[index].Transform[0][3] = boxModels[i].transforms[j].transform.m[0][3];
-                instanceDescsArray[index].Transform[1][3] = boxModels[i].transforms[j].transform.m[1][3];
-                instanceDescsArray[index].Transform[2][3] = boxModels[i].transforms[j].transform.m[2][3];
+                instanceDescsArray[index].Transform[0][3] = boxModels[i].components[j].transform.m[0][3];
+                instanceDescsArray[index].Transform[1][3] = boxModels[i].components[j].transform.m[1][3];
+                instanceDescsArray[index].Transform[2][3] = boxModels[i].components[j].transform.m[2][3];
                 instanceDescsArray[index].InstanceMask = 1;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
                 instanceData[index].textureId = boxModels[i].material.TexIndex;
                 if (x >= z && y >= z)
                 {
-                    instanceData[index].u = x;
-                    instanceData[index].v = y;
+                    instanceData[index].uvx.x = x;
+                    instanceData[index].uvx.y = y;
                 }
                 else if (y >= x && z >= x)
                 {
-                    instanceData[index].u = z;
-                    instanceData[index].v = y;
+                    instanceData[index].uvx.x = z;
+                    instanceData[index].uvx.y = y;
                 }
                 else
                 {
-                    instanceData[index].u = x;
-                    instanceData[index].v = z;
+                    instanceData[index].uvx.x = x;
+                    instanceData[index].uvx.y = z;
                 }
-                instanceData[index].color = boxModels[i].transforms[j].color;
+                instanceData[index].color = boxModels[i].components[j].color;
                 index++;
             }
         }
@@ -2297,7 +2305,7 @@ struct Scene
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetDescriptorHeaps(1, &DIRECTX.CbvSrvHeap);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputViewSlot, DIRECTX.m_raytracingOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputDepthSlot, DIRECTX.m_raytracingDepthOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
-        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, m_indexBuffer.gpuDescriptorHandle);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, boxVertexBuffer.indexBuffer.gpuDescriptorHandle);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::TextureSlot, DIRECTX.texArrayGpuHandle);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootShaderResourceView(DirectX12::GlobalRootSignatureParams::AccelerationStructureSlot, DIRECTX.m_topLevelAccelerationStructure->GetGPUVirtualAddress());
        DispatchRays(currFrameRes.m_dxrCommandList[DIRECTX.ActiveContext].Get(), DIRECTX.m_dxrStateObject.Get(), &dispatchDesc);
@@ -2306,66 +2314,65 @@ struct Scene
     void Init(bool includeIntensiveGPUobject)
     {
         CreateConstantBuffers();
-        BuildGeometry();
-        std::vector<Transform> transforms;
+        std::vector<ModelComponent> transforms;
         std::vector<Model> models;
         numInstances = 0;
 
-        transforms.push_back(Transform(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
+        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
         models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
         
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000));
+        transforms.push_back(ModelComponent(0.1f, -0.1f, 0.1f, -0.1f, +0.1f, -0.1f, 0xffff0000));
         models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
 
 
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
-        transforms.push_back(Transform(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
-        transforms.push_back(Transform(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
         models.push_back(Model(transforms, RTXMaterial((UINT)Texture::AUTO_WALL - 1)));
 
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
-        transforms.push_back(Transform(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
+        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
         models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_FLOOR - 1)));
 
 
         numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(Transform(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
+        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
         models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_CEILING - 1)));
 
 
         numInstances += transforms.size();
         transforms.clear();
         //TriangleSet furniture;
-        transforms.push_back(Transform(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838));    // Right side shelf// Verticals
-        transforms.push_back(Transform(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838));   // Right side shelf
-        transforms.push_back(Transform(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838)); // Right side shelf// Horizontals
-        transforms.push_back(Transform(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838)); // Right side shelf
-        transforms.push_back(Transform(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838));   // Right railing
-        transforms.push_back(Transform(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838));   // Left railing
+        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838));    // Right side shelf// Verticals
+        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838));   // Right side shelf
+        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838)); // Right side shelf// Horizontals
+        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838)); // Right side shelf
+        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838));   // Right railing
+        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838));   // Left railing
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(Transform(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050)); // Left Bars
+            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050)); // Left Bars
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(Transform(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050)); // Right Bars
-        transforms.push_back(Transform(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000));  // Table
-        transforms.push_back(Transform(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000)); // Table Leg
-        transforms.push_back(Transform(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000)); // Table Leg
-        transforms.push_back(Transform(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000));  // Table Leg
-        transforms.push_back(Transform(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000));  // Table Leg
-        transforms.push_back(Transform(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050));  // Chair Set
-        transforms.push_back(Transform(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050)); // Chair Leg 1
-        transforms.push_back(Transform(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(Transform(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(Transform(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(Transform(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050)); // Chair Back high bar
+            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050)); // Right Bars
+        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000));  // Table
+        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000)); // Table Leg
+        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000)); // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000));  // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000));  // Table Leg
+        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050));  // Chair Set
+        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050)); // Chair Leg 1
+        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050)); // Chair Back high bar
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
-            transforms.push_back(Transform(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
+            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
 
         models.push_back(Model(transforms, RTXMaterial(Texture::AUTO_WHITE - 1)));
         numInstances += transforms.size();
