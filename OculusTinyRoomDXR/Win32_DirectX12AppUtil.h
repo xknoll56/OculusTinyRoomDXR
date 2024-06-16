@@ -265,10 +265,7 @@ struct DirectX12
 
 
 
-    // Acceleration structure
-    ComPtr<ID3D12Resource> m_accelerationStructure;
-    ComPtr<ID3D12Resource> m_bottomLevelAccelerationStructure;
-    ComPtr<ID3D12Resource> m_topLevelAccelerationStructure;
+
 
     // Raytracing output
     ComPtr<ID3D12Resource> m_raytracingOutputs[2];
@@ -1999,6 +1996,7 @@ struct VertexBuffer
 {
     DirectX12::D3DBuffer indexBuffer;
     DirectX12::D3DBuffer vertexBuffer;
+    ComPtr<ID3D12Resource> m_bottomLevelAccelerationStructure;
 
     void InitBox()
     {
@@ -2073,6 +2071,84 @@ struct VertexBuffer
         UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, ARRAYSIZE(vertices), sizeof(vertices[0]));
         ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
     }
+
+    void InitBottomLevelAccelerationObject()
+    {
+        // Reset the command list for the acceleration structure construction.
+        DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
+
+        D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
+        geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geometryDesc.Triangles.IndexBuffer = indexBuffer.resource->GetGPUVirtualAddress();
+        geometryDesc.Triangles.IndexCount = static_cast<UINT>(indexBuffer.resource->GetDesc().Width) / sizeof(UINT);
+        geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+        geometryDesc.Triangles.Transform3x4 = 0;
+        geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geometryDesc.Triangles.VertexCount = static_cast<UINT>(vertexBuffer.resource->GetDesc().Width) / (sizeof(Vertex));
+        geometryDesc.Triangles.VertexBuffer.StartAddress = vertexBuffer.resource->GetGPUVirtualAddress();
+        geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(Vertex));
+
+        // Mark the geometry as opaque. 
+        // PERFORMANCE TIP: mark geometry as opaque whenever applicable as it can enable important ray processing optimizations.
+        // Note: When rays encounter opaque geometry an any hit shader will not be executed whether it is present or not.
+        geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+
+        // Get required sizes for an acceleration structure.
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = {};
+        bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        bottomLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        bottomLevelInputs.Flags = buildFlags;
+        bottomLevelInputs.NumDescs = 1;
+        bottomLevelInputs.pGeometryDescs = &geometryDesc;
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
+        DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
+        ThrowIfFalse(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
+
+        ID3D12Resource* scratchResource;
+        DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ScratchDataSizeInBytes, &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
+
+        // Allocate resources for acceleration structures.
+        // Acceleration structures can only be placed in resources that are created in the default heap (or custom heap equivalent). 
+        // Default heap is OK since the application doesn’t need CPU read/write access to them. 
+        // The resources that will contain acceleration structures must be created in the state D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, 
+        // and must have resource flag D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. The ALLOW_UNORDERED_ACCESS requirement simply acknowledges both: 
+        //  - the system will be doing this type of access in its implementation of acceleration structure builds behind the scenes.
+        //  - from the app point of view, synchronization of writes/reads to acceleration structures is accomplished using UAV barriers.
+        {
+            D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
+        }
+
+        // Bottom Level Acceleration Structure desc
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
+        {
+            bottomLevelBuildDesc.Inputs = bottomLevelInputs;
+            bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
+            bottomLevelBuildDesc.DestAccelerationStructureData = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+        }
+
+
+        auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
+            {
+                raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
+                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_bottomLevelAccelerationStructure.Get());
+                DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
+            };
+
+        // Build acceleration structure.
+        BuildAccelerationStructure(DIRECTX.CurrentFrameResources().m_dxrCommandList[DrawContext_Final].Get());
+
+        // Kick off acceleration structure construction.
+        DIRECTX.SubmitCommandList(DrawContext_Final);
+
+        // Wait for GPU to finish as the locally created temporary GPU resources will get released once we go out of scope.
+        DIRECTX.WaitForGpu();
+        scratchResource->Release();
+    }
 };
 
 struct Model
@@ -2121,28 +2197,17 @@ struct Scene
     UINT numInstances;
 
     VertexBuffer boxVertexBuffer;
+
+    // Acceleration structure
+    ComPtr<ID3D12Resource> m_topLevelAccelerationStructure;
     // Build acceleration structures needed for raytracing.
     void BuildAccelerationStructures(std::vector<Model> boxModels)
     {
         boxVertexBuffer.InitBox();
+        boxVertexBuffer.InitBottomLevelAccelerationObject();
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
-        D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
-        geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geometryDesc.Triangles.IndexBuffer = boxVertexBuffer.indexBuffer.resource->GetGPUVirtualAddress();
-        geometryDesc.Triangles.IndexCount = static_cast<UINT>(boxVertexBuffer.indexBuffer.resource->GetDesc().Width) / sizeof(UINT);
-        geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
-        geometryDesc.Triangles.Transform3x4 = 0;
-        geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geometryDesc.Triangles.VertexCount = static_cast<UINT>(boxVertexBuffer.vertexBuffer.resource->GetDesc().Width) / (sizeof(Vertex));
-        geometryDesc.Triangles.VertexBuffer.StartAddress = boxVertexBuffer.vertexBuffer.resource->GetGPUVirtualAddress();
-        geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(Vertex));
-
-        // Mark the geometry as opaque. 
-        // PERFORMANCE TIP: mark geometry as opaque whenever applicable as it can enable important ray processing optimizations.
-        // Note: When rays encounter opaque geometry an any hit shader will not be executed whether it is present or not.
-        geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
 
         // Get required sizes for an acceleration structure.
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
@@ -2156,19 +2221,9 @@ struct Scene
         DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&topLevelInputs, &topLevelPrebuildInfo);
         ThrowIfFalse(topLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
 
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = {};
-        bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-        bottomLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        bottomLevelInputs.Flags = buildFlags;
-        bottomLevelInputs.NumDescs = 1;
-        bottomLevelInputs.pGeometryDescs = &geometryDesc;
-
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
-        DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
-        ThrowIfFalse(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
 
         ID3D12Resource* scratchResource;
-        DIRECTX.AllocateUAVBuffer(DIRECTX.Device, max(topLevelPrebuildInfo.ScratchDataSizeInBytes, bottomLevelPrebuildInfo.ScratchDataSizeInBytes), &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
+        DIRECTX.AllocateUAVBuffer(DIRECTX.Device, topLevelPrebuildInfo.ScratchDataSizeInBytes, &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
 
         // Allocate resources for acceleration structures.
         // Acceleration structures can only be placed in resources that are created in the default heap (or custom heap equivalent). 
@@ -2180,8 +2235,8 @@ struct Scene
         {
             D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
 
-            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &DIRECTX.m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
-            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, &DIRECTX.m_topLevelAccelerationStructure, initialResourceState, L"TopLevelAccelerationStructure");
+           // DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &DIRECTX.m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_topLevelAccelerationStructure, initialResourceState, L"TopLevelAccelerationStructure");
         }
 
         ID3D12Resource* instanceDescs;
@@ -2203,7 +2258,7 @@ struct Scene
                 instanceDescsArray[index].Transform[2][3] = boxModels[i].components[j].transform.m[2][3];
                 instanceDescsArray[index].InstanceMask = 1;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
-                instanceDescsArray[index].AccelerationStructure = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+                instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
                 instanceData[index].textureId = boxModels[i].material.TexIndex;
                 if (x >= z && y >= z)
                 {
@@ -2226,28 +2281,17 @@ struct Scene
         }
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances*sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs, L"InstanceDescs");
 
-        // Bottom Level Acceleration Structure desc
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
-        {
-            bottomLevelBuildDesc.Inputs = bottomLevelInputs;
-            bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
-            bottomLevelBuildDesc.DestAccelerationStructureData = DIRECTX.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
-        }
-
         // Top Level Acceleration Structure desc
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc = {};
         {
             topLevelInputs.InstanceDescs = instanceDescs->GetGPUVirtualAddress();
             topLevelBuildDesc.Inputs = topLevelInputs;
-            topLevelBuildDesc.DestAccelerationStructureData = DIRECTX.m_topLevelAccelerationStructure->GetGPUVirtualAddress();
+            topLevelBuildDesc.DestAccelerationStructureData = m_topLevelAccelerationStructure->GetGPUVirtualAddress();
             topLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
         }
 
         auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
             {
-                raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
-                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(DIRECTX.m_bottomLevelAccelerationStructure.Get());
-                DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
                 raytracingCommandList->BuildRaytracingAccelerationStructure(&topLevelBuildDesc, 0, nullptr);
             };
 
@@ -2259,6 +2303,7 @@ struct Scene
 
         // Wait for GPU to finish as the locally created temporary GPU resources will get released once we go out of scope.
         DIRECTX.WaitForGpu();
+        scratchResource->Release();
     }
 
 
@@ -2307,7 +2352,7 @@ struct Scene
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputDepthSlot, DIRECTX.m_raytracingDepthOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, boxVertexBuffer.indexBuffer.gpuDescriptorHandle);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::TextureSlot, DIRECTX.texArrayGpuHandle);
-        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootShaderResourceView(DirectX12::GlobalRootSignatureParams::AccelerationStructureSlot, DIRECTX.m_topLevelAccelerationStructure->GetGPUVirtualAddress());
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootShaderResourceView(DirectX12::GlobalRootSignatureParams::AccelerationStructureSlot, m_topLevelAccelerationStructure->GetGPUVirtualAddress());
        DispatchRays(currFrameRes.m_dxrCommandList[DIRECTX.ActiveContext].Get(), DIRECTX.m_dxrStateObject.Get(), &dispatchDesc);
     }
 
