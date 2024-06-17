@@ -381,6 +381,11 @@ static bool MainLoop(bool retryCreate)
             thumbstickX = inputState.Thumbstick[ovrHand_Right].x;
             mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw -= 0.02f * thumbstickX, 0);
 
+            float leftBottomTrigger = inputState.IndexTrigger[ovrHand_Left];
+            float rightBottomTrigger = inputState.IndexTrigger[ovrHand_Right];
+            movement = XMVectorScale({0, 1, 0, 0}, (-leftBottomTrigger+rightBottomTrigger)*0.05f);
+            mainCamPos = XMVectorAdd(mainCamPos, movement);
+
             mainCam->SetPosVec(mainCamPos);
             mainCam->SetRotVec(mainCamRot);
 
@@ -388,7 +393,7 @@ static bool MainLoop(bool retryCreate)
             static float cubeClock = 0;
             if (sessionStatus.HasInputFocus) // Pause the application if we are not supposed to have input..
             {
-                XMVECTOR cubePos = { 9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.015f), 0 };
+                XMVECTOR cubePos = { 9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.0015f), 0 };
                 XMFLOAT3 cubePosAsFloat3;
                 XMStoreFloat3(&cubePosAsFloat3, cubePos);
                 roomScene->UpdateInstancePosition(0, cubePosAsFloat3);

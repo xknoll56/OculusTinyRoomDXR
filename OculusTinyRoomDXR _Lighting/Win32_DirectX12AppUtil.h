@@ -756,7 +756,7 @@ struct DirectX12
         // Shader config
         // Defines the maximum sizes in bytes for the ray payload and attribute structure.
         auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
-        UINT payloadSize = 11 * sizeof(float);   // float4 color, float depth, float3 origin, float3 direction
+        UINT payloadSize = 11 * sizeof(float) + sizeof(UINT);   // float4 color, float depth, float3 origin, float3 direction
         UINT attributeSize = 2 * sizeof(float); // float2 barycentrics
         shaderConfig->Config(payloadSize, attributeSize);
 
@@ -774,7 +774,7 @@ struct DirectX12
         auto pipelineConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
         // PERFOMANCE TIP: Set max recursion depth as low as needed 
         // as drivers may apply optimization strategies for low recursion depths. 
-        UINT maxRecursionDepth = 1; // ~ primary rays only. 
+        UINT maxRecursionDepth = 2; // ~ primary rays only. 
         pipelineConfig->Config(maxRecursionDepth);
 
 #if _DEBUG
@@ -2299,6 +2299,8 @@ struct Scene
                     }
                 }
                 instanceDescsArray[index].InstanceMask = 1;
+                if (index == 0)
+                    instanceDescsArray[index].InstanceMask = 0;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
                 instanceData[index].textureId = boxModels[i].material.TexIndex;
