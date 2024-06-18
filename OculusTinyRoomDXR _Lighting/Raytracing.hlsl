@@ -153,10 +153,12 @@ bool IsInShadow(float3 lightDir, float3 hitPoint, float maxDist)
     return payload.depth < shadowRay.TMax;
 }
 
+
+
 [shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 {
-    if (payload.recursionDepth == 1)
+    if (payload.recursionDepth == 1 && InstanceID() != 6)
     {
         payload.depth = RayTCurrent();
     }
@@ -215,7 +217,8 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
         float maxDist = length(g_sceneCB.lights[0].position - hitPoint);
     
         float lighting = 0.05f;
-        if (!IsInShadow(lightDir, hitPoint, maxDist))
+        if ((payload.recursionDepth == 0) &&
+            !IsInShadow(lightDir, hitPoint, maxDist))
         {
     // Access the instance transformation matrix
             float3x4 instanceTransform = ObjectToWorld3x4();
@@ -232,8 +235,28 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
             float NdotL = max(dot(triangleNormal, lightDir), 0.0);
             lighting += NdotL;
         }
+        
+        float4 reflectColor = float4(0, 0, 0, 0);
+        if ((payload.recursionDepth == 0) && InstanceID() == 6)
+        {
+            float3 reflectDir = reflect(payload.direction, triangleNormal);
+            RayDesc reflectRay;
+            reflectRay.Origin = hitPoint;
+            reflectRay.Direction = reflectDir;
+            reflectRay.TMin = 0.001f;
+            reflectRay.TMax = 10000.0f;
+
+            // Increase recursion depth
+            RayPayload reflectPayload = { float4(0, 0, 0, 0), 0, reflectRay.Origin, reflectRay.Direction, 2 };
+
+            // Trace reflection ray
+            TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, reflectRay, reflectPayload);
+            
+            float reflectance = 3.0f;
+            reflectColor = reflectPayload.color * reflectance;
+        }
     
-        payload.color = (sampledColor * instanceColor) * lighting;
+        payload.color = (sampledColor * instanceColor + reflectColor) * lighting;
     }
 }
 

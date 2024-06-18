@@ -774,7 +774,7 @@ struct DirectX12
         auto pipelineConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
         // PERFOMANCE TIP: Set max recursion depth as low as needed 
         // as drivers may apply optimization strategies for low recursion depths. 
-        UINT maxRecursionDepth = 2; // ~ primary rays only. 
+        UINT maxRecursionDepth = 3; // ~ primary rays only. 
         pipelineConfig->Config(maxRecursionDepth);
 
 #if _DEBUG
