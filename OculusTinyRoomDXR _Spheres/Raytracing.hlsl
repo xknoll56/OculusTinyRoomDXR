@@ -153,7 +153,13 @@ bool IsInShadow(float3 lightDir, float3 hitPoint, float maxDist)
     return payload.depth < shadowRay.TMax;
 }
 
+[shader("closesthit")]
+void SimpleHitShader(inout RayPayload payload, in MyAttributes attr)
+{
+    payload.depth = RayTCurrent();
+    payload.color = float4(1, 1, 0, 1);
 
+}
 
 [shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)

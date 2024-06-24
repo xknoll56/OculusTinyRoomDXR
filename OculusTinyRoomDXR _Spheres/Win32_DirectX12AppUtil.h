@@ -256,8 +256,8 @@ struct DirectX12
 
     // Root signatures
     ComPtr<ID3D12RootSignature> m_raytracingGlobalRootSignature;
-    ComPtr<ID3D12RootSignature> m_raytracingLocalRootSignature;
-    ComPtr<ID3D12RootSignature> m_raytracingAABBLocalRootSignature;
+    //ComPtr<ID3D12RootSignature> m_raytracingLocalRootSignature;
+    //ComPtr<ID3D12RootSignature> m_raytracingAABBLocalRootSignature;
 
     //Raytracing Descriptors
     //ComPtr<ID3D12DescriptorHeap> m_descriptorHeap;
@@ -556,22 +556,22 @@ struct DirectX12
 
         // Local Root Signature
         // This is a root signature that enables a shader to have unique arguments that come from shader tables.
-        {
-            CD3DX12_ROOT_SIGNATURE_DESC localRootSignatureDesc;
-            localRootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        //{
+        //    CD3DX12_ROOT_SIGNATURE_DESC localRootSignatureDesc;
+        //    localRootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
-            // Serialize and create the local root signature
-            SerializeAndCreateRaytracingRootSignature(localRootSignatureDesc, &m_raytracingLocalRootSignature);
-        }
+        //    // Serialize and create the local root signature
+        //    SerializeAndCreateRaytracingRootSignature(localRootSignatureDesc, &m_raytracingLocalRootSignature);
+        //}
 
-        // This is a root signature that enables a shader to have unique arguments that come from shader tables.
-        {
-            CD3DX12_ROOT_SIGNATURE_DESC localRootSignatureDesc;
-            localRootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        //// This is a root signature that enables a shader to have unique arguments that come from shader tables.
+        //{
+        //    CD3DX12_ROOT_SIGNATURE_DESC localRootSignatureDesc;
+        //    localRootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
-            // Serialize and create the local root signature
-            SerializeAndCreateRaytracingRootSignature(localRootSignatureDesc, &m_raytracingAABBLocalRootSignature);
-        }
+        //    // Serialize and create the local root signature
+        //    SerializeAndCreateRaytracingRootSignature(localRootSignatureDesc, &m_raytracingAABBLocalRootSignature);
+        //}
     }
 
 
@@ -588,11 +588,13 @@ struct DirectX12
 
     const wchar_t* c_raygenShaderName = L"MyRaygenShader";
     const wchar_t* c_closestHitShaderName = L"MyClosestHitShader";
-    const wchar_t* c_aabbClosestHitShaderName = L"MyClosestHitShader_AABB";
-    const wchar_t* c_intersectionShaderName = L"MySimpleIntersectionShader";
+    const wchar_t* c_simpleHitShaderName = L"SimpleHitShader";
+    //const wchar_t* c_aabbClosestHitShaderName = L"MyClosestHitShader_AABB";
+    ///const wchar_t* c_intersectionShaderName = L"MySimpleIntersectionShader";
     const wchar_t* c_missShaderName = L"MyMissShader";
     const wchar_t* c_triangleHitGroupName = L"TriangleHitGroup";
-    const wchar_t* c_aabbHitGroupName = L"AABBHitGroup";
+    const wchar_t* c_simpleTriangleHitGroupName = L"TriangleHitGroup1";
+    //const wchar_t* c_aabbHitGroupName = L"AABBHitGroup";
 
 
 
@@ -603,14 +605,14 @@ struct DirectX12
         // Hit group and miss shaders in this sample are not using a local root signature and thus one is not associated with them.
 
         // Local root signature to be used in a ray gen shader.
-        {
-            auto localRootSignature = raytracingPipeline->CreateSubobject<CD3DX12_LOCAL_ROOT_SIGNATURE_SUBOBJECT>();
-            localRootSignature->SetRootSignature(m_raytracingLocalRootSignature.Get());
-            // Shader association
-            auto rootSignatureAssociation = raytracingPipeline->CreateSubobject<CD3DX12_SUBOBJECT_TO_EXPORTS_ASSOCIATION_SUBOBJECT>();
-            rootSignatureAssociation->SetSubobjectToAssociate(*localRootSignature);
-            rootSignatureAssociation->AddExport(c_raygenShaderName);
-        }
+        //{
+        //    auto localRootSignature = raytracingPipeline->CreateSubobject<CD3DX12_LOCAL_ROOT_SIGNATURE_SUBOBJECT>();
+        //    localRootSignature->SetRootSignature(m_raytracingLocalRootSignature.Get());
+        //    // Shader association
+        //    auto rootSignatureAssociation = raytracingPipeline->CreateSubobject<CD3DX12_SUBOBJECT_TO_EXPORTS_ASSOCIATION_SUBOBJECT>();
+        //    rootSignatureAssociation->SetSubobjectToAssociate(*localRootSignature);
+        //    rootSignatureAssociation->AddExport(c_raygenShaderName);
+        //}
 
 
         //// Create local root signiture for AABB geometry
@@ -770,11 +772,10 @@ struct DirectX12
         hitGroup->SetHitGroupExport(c_triangleHitGroupName);
         hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
 
-        auto aabbGroup = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
-        aabbGroup->SetIntersectionShaderImport(c_intersectionShaderName);
-        aabbGroup->SetClosestHitShaderImport(c_aabbClosestHitShaderName);
-        aabbGroup->SetHitGroupExport(c_aabbHitGroupName);
-        aabbGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE);
+        auto hitGroup1 = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
+        hitGroup1->SetClosestHitShaderImport(c_simpleHitShaderName);
+        hitGroup1->SetHitGroupExport(c_simpleTriangleHitGroupName);
+        hitGroup1->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
 
         // Shader config
         // Defines the maximum sizes in bytes for the ray payload and attribute structure.
@@ -1293,12 +1294,14 @@ struct DirectX12
         void* rayGenShaderIdentifier;
         void* missShaderIdentifier;
         void* hitGroupShaderIdentifier;
+        void* hitGroupShaderIdentifier1;
 
         auto GetShaderIdentifiers = [&](auto* stateObjectProperties)
             {
                 rayGenShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_raygenShaderName);
                 missShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_missShaderName);
                 hitGroupShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_triangleHitGroupName);
+                hitGroupShaderIdentifier1 = stateObjectProperties->GetShaderIdentifier(c_simpleTriangleHitGroupName);
             };
 
         // Get shader identifiers.
@@ -1337,10 +1340,11 @@ struct DirectX12
 
         // Hit group shader table
         {
-            UINT numShaderRecords = 1;
+            UINT numShaderRecords = 2;
             UINT shaderRecordSize = shaderIdentifierSize;
             ShaderTable hitGroupShaderTable(Device, numShaderRecords, shaderRecordSize, L"HitGroupShaderTable");
             hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier, shaderIdentifierSize));
+            hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier1, shaderIdentifierSize));
             m_hitGroupShaderTable = hitGroupShaderTable.GetResource();
         }
     }
@@ -2305,6 +2309,7 @@ struct Scene
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
+        numInstances++;
         instanceDescsArray = new D3D12_RAYTRACING_INSTANCE_DESC[numInstances];
         UINT index = 0;
         for (int i = 0; i < boxModels.size(); ++i) {
@@ -2346,6 +2351,12 @@ struct Scene
                 index++;
             }
         }
+        instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
+        instanceDescsArray[index].Transform[0][0] = instanceDescsArray[index].Transform[1][1] = instanceDescsArray[index].Transform[2][2] = 1;
+        instanceDescsArray[index].InstanceID = index;
+        instanceDescsArray[index].InstanceMask = 1;
+        instanceDescsArray[index].InstanceContributionToHitGroupIndex = 1;
+        instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances*sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs, L"InstanceDescs");
 
 
@@ -2418,10 +2429,10 @@ struct Scene
                 // Since each shader table has only one shader record, the stride is same as the size.
                 dispatchDesc->HitGroupTable.StartAddress = DIRECTX.m_hitGroupShaderTable->GetGPUVirtualAddress();
                 dispatchDesc->HitGroupTable.SizeInBytes = DIRECTX.m_hitGroupShaderTable->GetDesc().Width;
-                dispatchDesc->HitGroupTable.StrideInBytes = dispatchDesc->HitGroupTable.SizeInBytes;
+                dispatchDesc->HitGroupTable.StrideInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
                 dispatchDesc->MissShaderTable.StartAddress = DIRECTX.m_missShaderTable->GetGPUVirtualAddress();
                 dispatchDesc->MissShaderTable.SizeInBytes = DIRECTX.m_missShaderTable->GetDesc().Width;
-                dispatchDesc->MissShaderTable.StrideInBytes = dispatchDesc->MissShaderTable.SizeInBytes;
+                dispatchDesc->MissShaderTable.StrideInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
                 dispatchDesc->RayGenerationShaderRecord.StartAddress = DIRECTX.m_rayGenShaderTable->GetGPUVirtualAddress();
                 dispatchDesc->RayGenerationShaderRecord.SizeInBytes = DIRECTX.m_rayGenShaderTable->GetDesc().Width;
                 dispatchDesc->Width = DIRECTX.eyeWidth;
