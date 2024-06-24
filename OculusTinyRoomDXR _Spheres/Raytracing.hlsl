@@ -280,55 +280,79 @@ struct ProceduralAttributes
     // Add other attributes as needed
 };
 
+bool RayAABBIntersectionTest(float3 rayOrigin, float3 rayDir, float3 aabb[2], out float tmin, out float tmax)
+{
+    float3 tmin3, tmax3;
+    int3 sign3 = rayDir > 0;
+
+    // Handle rays parallel to any x|y|z slabs of the AABB.
+    // If a ray is within the parallel slabs, 
+    //  the tmin, tmax will get set to -inf and +inf
+    //  which will get ignored on tmin/tmax = max/min.
+    // If a ray is outside the parallel slabs, -inf/+inf will
+    //  make tmax > tmin fail (i.e. no intersection).
+    // TODO: handle cases where ray origin is within a slab 
+    //  that a ray direction is parallel to. In that case
+    //  0 * INF => NaN
+    const float FLT_INFINITY = 1.#INF;
+    float3 invRayDirection = 1.0f/rayDir;
+
+    tmin3.x = (aabb[1 - sign3.x].x - rayOrigin.x) * invRayDirection.x;
+    tmax3.x = (aabb[sign3.x].x - rayOrigin.x) * invRayDirection.x;
+
+    tmin3.y = (aabb[1 - sign3.y].y - rayOrigin.y) * invRayDirection.y;
+    tmax3.y = (aabb[sign3.y].y - rayOrigin.y) * invRayDirection.y;
+    
+    tmin3.z = (aabb[1 - sign3.z].z - rayOrigin.z) * invRayDirection.z;
+    tmax3.z = (aabb[sign3.z].z - rayOrigin.z) * invRayDirection.z;
+    
+    tmin = max(max(tmin3.x, tmin3.y), tmin3.z);
+    tmax = min(min(tmax3.x, tmax3.y), tmax3.z);
+    
+    return tmax > tmin && tmax >= RayTMin() && tmin <= RayTCurrent();
+}
+
 [shader("intersection")]
 void MySimpleIntersectionShader()
 {
-    // Extract ray data
+    float tmin, tmax;
+    float tHit;
+    ProceduralAttributes attr;
+    float3 aabb[2];
+    aabb[0] = float3(0, 0, 0);
+    aabb[1] = float3(0.5, 0.5, 0.5);
     float3 rayOrigin = WorldRayOrigin();
     float3 rayDirection = WorldRayDirection();
-
-    // Load AABB data (assuming it's provided as global root constant)
-    float3 aabbMin = float3(-1.0f, -1.0f, -1.0f); // Replace with actual min bounds
-    float3 aabbMax = float3(1.0f, 1.0f, 1.0f); // Replace with actual max bounds
-
-    // Compute the intersection with the AABB
-    float3 invDir = 1.0 / rayDirection;
-    float3 tMin = (aabbMin - rayOrigin) * invDir;
-    float3 tMax = (aabbMax - rayOrigin) * invDir;
-
-    float t1 = max(max(min(tMin.x, tMax.x), min(tMin.y, tMax.y)), min(tMin.z, tMax.z));
-    float t2 = min(min(max(tMin.x, tMax.x), max(tMin.y, tMax.y)), max(tMin.z, tMax.z));
-
-    // Check if there is an intersection
-    if (t1 <= t2 && t2 > 0)
+    if (RayAABBIntersectionTest(rayOrigin, rayDirection, aabb, tmin, tmax))
     {
-        float thit = t1 > 0 ? t1 : t2; // Use the closest valid intersection
+    // Only consider intersections crossing the surface from the outside.
+        if (tmin < RayTMin() || tmin > RayTCurrent())
+            return;
 
-        // Calculate hit position
-        float3 hitPosition = rayOrigin + rayDirection * thit;
+        tHit = tmin;
 
-        // Calculate normal
-        float3 normal;
-        if (abs(hitPosition.x - aabbMin.x) < 1e-3)
-            normal = float3(-1, 0, 0);
-        else if (abs(hitPosition.x - aabbMax.x) < 1e-3)
-            normal = float3(1, 0, 0);
-        else if (abs(hitPosition.y - aabbMin.y) < 1e-3)
-            normal = float3(0, -1, 0);
-        else if (abs(hitPosition.y - aabbMax.y) < 1e-3)
-            normal = float3(0, 1, 0);
-        else if (abs(hitPosition.z - aabbMin.z) < 1e-3)
-            normal = float3(0, 0, -1);
-        else
-            normal = float3(0, 0, 1); // Close enough to the max.z plane
+        // Set a normal to the normal of a face the hit point lays on.
+        float3 hitPosition = rayOrigin + tHit * rayDirection;
+        float3 distanceToBounds[2] =
+        {
+            abs(aabb[0] - hitPosition),
+            abs(aabb[1] - hitPosition)
+        };
+        const float eps = 0.0001;
+        if (distanceToBounds[0].x < eps)
+            attr.normal = float3(-1, 0, 0);
+        else if (distanceToBounds[0].y < eps)
+            attr.normal = float3(0, -1, 0);
+        else if (distanceToBounds[0].z < eps)
+            attr.normal = float3(0, 0, -1);
+        else if (distanceToBounds[1].x < eps)
+            attr.normal = float3(1, 0, 0);
+        else if (distanceToBounds[1].y < eps)
+            attr.normal = float3(0, 1, 0);
+        else if (distanceToBounds[1].z < eps)
+            attr.normal = float3(0, 0, 1);
 
-        // Define the attributes to report
-        ProceduralAttributes attr;
-        attr.hitPosition = hitPosition;
-        attr.normal = normal;
-
-        // Report the hit with the calculated attributes
-        ReportHit(thit, /*hitKind*/0, attr);
+        ReportHit(tHit, /*hitKind*/0, attr);
     }
 }
 
