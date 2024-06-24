@@ -283,16 +283,53 @@ struct ProceduralAttributes
 [shader("intersection")]
 void MySimpleIntersectionShader()
 {
-    // Fixed hit distance
-    float thit = 1.0f;
+    // Extract ray data
+    float3 rayOrigin = WorldRayOrigin();
+    float3 rayDirection = WorldRayDirection();
 
-    // Define default attributes
-    ProceduralAttributes attr;
-    attr.hitPosition = float3(0.0f, 0.0f, 0.0f); // A fixed hit position
-    attr.normal = float3(0.0f, 1.0f, 0.0f); // A fixed normal
+    // Load AABB data (assuming it's provided as global root constant)
+    float3 aabbMin = float3(-1.0f, -1.0f, -1.0f); // Replace with actual min bounds
+    float3 aabbMax = float3(1.0f, 1.0f, 1.0f); // Replace with actual max bounds
 
-    // Report the hit with the fixed attributes
-    ReportHit(thit, /*hitKind*/0, attr);
+    // Compute the intersection with the AABB
+    float3 invDir = 1.0 / rayDirection;
+    float3 tMin = (aabbMin - rayOrigin) * invDir;
+    float3 tMax = (aabbMax - rayOrigin) * invDir;
+
+    float t1 = max(max(min(tMin.x, tMax.x), min(tMin.y, tMax.y)), min(tMin.z, tMax.z));
+    float t2 = min(min(max(tMin.x, tMax.x), max(tMin.y, tMax.y)), max(tMin.z, tMax.z));
+
+    // Check if there is an intersection
+    if (t1 <= t2 && t2 > 0)
+    {
+        float thit = t1 > 0 ? t1 : t2; // Use the closest valid intersection
+
+        // Calculate hit position
+        float3 hitPosition = rayOrigin + rayDirection * thit;
+
+        // Calculate normal
+        float3 normal;
+        if (abs(hitPosition.x - aabbMin.x) < 1e-3)
+            normal = float3(-1, 0, 0);
+        else if (abs(hitPosition.x - aabbMax.x) < 1e-3)
+            normal = float3(1, 0, 0);
+        else if (abs(hitPosition.y - aabbMin.y) < 1e-3)
+            normal = float3(0, -1, 0);
+        else if (abs(hitPosition.y - aabbMax.y) < 1e-3)
+            normal = float3(0, 1, 0);
+        else if (abs(hitPosition.z - aabbMin.z) < 1e-3)
+            normal = float3(0, 0, -1);
+        else
+            normal = float3(0, 0, 1); // Close enough to the max.z plane
+
+        // Define the attributes to report
+        ProceduralAttributes attr;
+        attr.hitPosition = hitPosition;
+        attr.normal = normal;
+
+        // Report the hit with the calculated attributes
+        ReportHit(thit, /*hitKind*/0, attr);
+    }
 }
 
 
@@ -302,7 +339,7 @@ void MyClosestHitShader_AABB(inout RayPayload rayPayload, in ProceduralAttribute
     // PERFORMANCE TIP: it is recommended to minimize values carry over across TraceRay() calls. 
     // Therefore, in cases like retrieving HitWorldPosition(), it is recomputed every time.=
 
-    rayPayload.color = float4(1, 0, 0, 1);
+    rayPayload.color = float4(0, 0, 1, 1);
 }
 
 #endif // RAYTRACING_HLSL

@@ -589,12 +589,12 @@ struct DirectX12
     const wchar_t* c_raygenShaderName = L"MyRaygenShader";
     const wchar_t* c_closestHitShaderName = L"MyClosestHitShader";
     const wchar_t* c_simpleHitShaderName = L"SimpleHitShader";
-    //const wchar_t* c_aabbClosestHitShaderName = L"MyClosestHitShader_AABB";
-    ///const wchar_t* c_intersectionShaderName = L"MySimpleIntersectionShader";
+    const wchar_t* c_aabbClosestHitShaderName = L"MyClosestHitShader_AABB";
+    const wchar_t* c_intersectionShaderName = L"MySimpleIntersectionShader";
     const wchar_t* c_missShaderName = L"MyMissShader";
     const wchar_t* c_triangleHitGroupName = L"TriangleHitGroup";
     const wchar_t* c_simpleTriangleHitGroupName = L"TriangleHitGroup1";
-    //const wchar_t* c_aabbHitGroupName = L"AABBHitGroup";
+    const wchar_t* c_aabbHitGroupName = L"AABBHitGroup";
 
 
 
@@ -776,6 +776,12 @@ struct DirectX12
         hitGroup1->SetClosestHitShaderImport(c_simpleHitShaderName);
         hitGroup1->SetHitGroupExport(c_simpleTriangleHitGroupName);
         hitGroup1->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
+
+        auto aabbGroup = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
+        aabbGroup->SetIntersectionShaderImport(c_intersectionShaderName);
+        aabbGroup->SetClosestHitShaderImport(c_aabbClosestHitShaderName);
+        aabbGroup->SetHitGroupExport(c_aabbHitGroupName);
+        aabbGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE);
 
         // Shader config
         // Defines the maximum sizes in bytes for the ray payload and attribute structure.
@@ -1295,6 +1301,7 @@ struct DirectX12
         void* missShaderIdentifier;
         void* hitGroupShaderIdentifier;
         void* hitGroupShaderIdentifier1;
+        void* hitGroupShaderIdentifier2;
 
         auto GetShaderIdentifiers = [&](auto* stateObjectProperties)
             {
@@ -1302,6 +1309,7 @@ struct DirectX12
                 missShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_missShaderName);
                 hitGroupShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_triangleHitGroupName);
                 hitGroupShaderIdentifier1 = stateObjectProperties->GetShaderIdentifier(c_simpleTriangleHitGroupName);
+                hitGroupShaderIdentifier2 = stateObjectProperties->GetShaderIdentifier(c_aabbHitGroupName);
             };
 
         // Get shader identifiers.
@@ -1340,11 +1348,12 @@ struct DirectX12
 
         // Hit group shader table
         {
-            UINT numShaderRecords = 2;
+            UINT numShaderRecords = 3;
             UINT shaderRecordSize = shaderIdentifierSize;
             ShaderTable hitGroupShaderTable(Device, numShaderRecords, shaderRecordSize, L"HitGroupShaderTable");
             hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier, shaderIdentifierSize));
             hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier1, shaderIdentifierSize));
+            hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier2, shaderIdentifierSize));
             m_hitGroupShaderTable = hitGroupShaderTable.GetResource();
         }
     }
@@ -2185,6 +2194,79 @@ struct VertexBuffer
         DIRECTX.WaitForGpu();
         scratchResource->Release();
     }
+
+    void InitAABBBottomLevelAccelerationObject()
+    {
+        // Reset the command list for the acceleration structure construction.
+        DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
+
+        D3D12_RAYTRACING_AABB aabb = { 0,0,0,1,1,1 };
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, &aabb, sizeof(D3D12_RAYTRACING_AABB), &vertexBuffer.resource);
+
+        D3D12_RAYTRACING_GEOMETRY_DESC aabbDescTemplate = {};
+        aabbDescTemplate.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+        aabbDescTemplate.AABBs.AABBCount = 1;
+        aabbDescTemplate.AABBs.AABBs.StrideInBytes = sizeof(D3D12_RAYTRACING_AABB);
+        aabbDescTemplate.AABBs.AABBs.StartAddress = vertexBuffer.resource->GetGPUVirtualAddress();
+        aabbDescTemplate.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+
+
+        // Get required sizes for an acceleration structure.
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = {};
+        bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        bottomLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        bottomLevelInputs.Flags = buildFlags;
+        bottomLevelInputs.NumDescs = 1;
+        bottomLevelInputs.pGeometryDescs = &aabbDescTemplate;
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
+        DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
+        ThrowIfFalse(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
+
+        ID3D12Resource* scratchResource;
+        DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ScratchDataSizeInBytes, &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
+
+        // Allocate resources for acceleration structures.
+        // Acceleration structures can only be placed in resources that are created in the default heap (or custom heap equivalent). 
+        // Default heap is OK since the application doesn’t need CPU read/write access to them. 
+        // The resources that will contain acceleration structures must be created in the state D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, 
+        // and must have resource flag D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. The ALLOW_UNORDERED_ACCESS requirement simply acknowledges both: 
+        //  - the system will be doing this type of access in its implementation of acceleration structure builds behind the scenes.
+        //  - from the app point of view, synchronization of writes/reads to acceleration structures is accomplished using UAV barriers.
+        {
+            D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
+        }
+
+        // Bottom Level Acceleration Structure desc
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
+        {
+            bottomLevelBuildDesc.Inputs = bottomLevelInputs;
+            bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
+            bottomLevelBuildDesc.DestAccelerationStructureData = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+        }
+
+
+        auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
+            {
+                raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
+                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_bottomLevelAccelerationStructure.Get());
+                DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
+            };
+
+        // Build acceleration structure.
+        BuildAccelerationStructure(DIRECTX.CurrentFrameResources().m_dxrCommandList[DrawContext_Final].Get());
+
+        // Kick off acceleration structure construction.
+        DIRECTX.SubmitCommandList(DrawContext_Final);
+
+        // Wait for GPU to finish as the locally created temporary GPU resources will get released once we go out of scope.
+        DIRECTX.WaitForGpu();
+        scratchResource->Release();
+    }
 };
 
 struct Model
@@ -2242,6 +2324,7 @@ struct Scene
     Light lights[4];
 
     VertexBuffer boxVertexBuffer;
+    VertexBuffer aabbVertexBuffer;
 
     ID3D12Resource* instanceDescs;
     D3D12_RAYTRACING_INSTANCE_DESC* instanceDescsArray;
@@ -2306,6 +2389,7 @@ struct Scene
         
         boxVertexBuffer.InitBox();
         boxVertexBuffer.InitBottomLevelAccelerationObject();
+        aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
@@ -2355,8 +2439,8 @@ struct Scene
         instanceDescsArray[index].Transform[0][0] = instanceDescsArray[index].Transform[1][1] = instanceDescsArray[index].Transform[2][2] = 1;
         instanceDescsArray[index].InstanceID = index;
         instanceDescsArray[index].InstanceMask = 1;
-        instanceDescsArray[index].InstanceContributionToHitGroupIndex = 1;
-        instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+        instanceDescsArray[index].InstanceContributionToHitGroupIndex = 2;
+        instanceDescsArray[index].AccelerationStructure = aabbVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances*sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs, L"InstanceDescs");
 
 
@@ -2429,9 +2513,11 @@ struct Scene
                 // Since each shader table has only one shader record, the stride is same as the size.
                 dispatchDesc->HitGroupTable.StartAddress = DIRECTX.m_hitGroupShaderTable->GetGPUVirtualAddress();
                 dispatchDesc->HitGroupTable.SizeInBytes = DIRECTX.m_hitGroupShaderTable->GetDesc().Width;
+                // We don't have any root signiture so the stride is just the identifier size
                 dispatchDesc->HitGroupTable.StrideInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
                 dispatchDesc->MissShaderTable.StartAddress = DIRECTX.m_missShaderTable->GetGPUVirtualAddress();
                 dispatchDesc->MissShaderTable.SizeInBytes = DIRECTX.m_missShaderTable->GetDesc().Width;
+                // We don't have any root signiture so the stride is just the identifier size
                 dispatchDesc->MissShaderTable.StrideInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
                 dispatchDesc->RayGenerationShaderRecord.StartAddress = DIRECTX.m_rayGenShaderTable->GetGPUVirtualAddress();
                 dispatchDesc->RayGenerationShaderRecord.SizeInBytes = DIRECTX.m_rayGenShaderTable->GetDesc().Width;
