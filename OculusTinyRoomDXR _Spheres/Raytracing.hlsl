@@ -483,7 +483,11 @@ void MySimpleIntersectionShader()
     Ray ray;
     ray.origin = WorldRayOrigin();
     ray.direction = WorldRayDirection();
-    if (RaySphereIntersectionTest(ray, tHit, tmax, attr, float3(0.5f, 0.5, 0.5f), 0.5f))
+    float3x4 instanceTransform = ObjectToWorld3x4();
+    float3 position = float3(instanceTransform[0][3], instanceTransform[1][3], instanceTransform[2][3]);
+    // Now assume that it has been scaled uniformly to extract the radius
+    float radius = 0.5f * instanceTransform[0][0];
+    if (RaySphereIntersectionTest(ray, tHit, tmax, attr, position, radius))
     {
         ReportHit(tHit, /*hitKind*/0, attr);
     }

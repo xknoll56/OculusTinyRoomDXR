@@ -389,6 +389,8 @@ static bool MainLoop(bool retryCreate)
             mainCam->SetPosVec(mainCamPos);
             mainCam->SetRotVec(mainCamRot);
 
+            roomScene->lights[0].position = { 0,3,0,0 };
+
             // Animate the cube
             static float cubeClock = 0;
             if (sessionStatus.HasInputFocus) // Pause the application if we are not supposed to have input..
@@ -397,7 +399,7 @@ static bool MainLoop(bool retryCreate)
                 XMFLOAT3 cubePosAsFloat3;
                 XMStoreFloat3(&cubePosAsFloat3, cubePos);
                 roomScene->UpdateInstancePosition(0, cubePosAsFloat3);
-                roomScene->lights[0].position = cubePos;
+                roomScene->UpdateInstancePosition(45, cubePosAsFloat3);
             }
 
             // Call ovr_GetRenderDesc each frame to get the ovrEyeRenderDesc, as the returned values (e.g. HmdToEyePose) may change at runtime.

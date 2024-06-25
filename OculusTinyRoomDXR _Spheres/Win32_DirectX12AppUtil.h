@@ -2200,7 +2200,7 @@ struct VertexBuffer
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
-        D3D12_RAYTRACING_AABB aabb = { 0,0,0,1,1,1 };
+        D3D12_RAYTRACING_AABB aabb = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, &aabb, sizeof(D3D12_RAYTRACING_AABB), &vertexBuffer.resource);
 
         D3D12_RAYTRACING_GEOMETRY_DESC aabbDescTemplate = {};
