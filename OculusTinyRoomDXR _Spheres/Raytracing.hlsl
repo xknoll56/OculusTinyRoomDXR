@@ -496,6 +496,24 @@ void MySimpleIntersectionShader()
         ReportHit(tHit, /*hitKind*/0, attr);
     }
 }
+float4 ReflectRay(float3 rayDir, float3 normal, float3 hitPosition, float reflectanceFactor = 2.0f)
+{
+    
+    float3 reflectDir = reflect(rayDir, normal);
+    RayDesc reflectRay;
+    reflectRay.Origin = hitPosition;
+    reflectRay.Direction = reflectDir;
+    reflectRay.TMin = 0.001f;
+    reflectRay.TMax = 10000.0f;
+
+            // Increase recursion depth
+    RayPayload reflectPayload = { float4(0, 0, 0, 0), 0, reflectRay.Origin, reflectRay.Direction, 2 };
+
+            // Trace reflection ray
+    TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, reflectRay, reflectPayload);
+            
+    return reflectPayload.color * reflectanceFactor;
+}
 
 
 [shader("closesthit")]
@@ -508,9 +526,17 @@ void MyClosestHitShader_AABB(inout RayPayload payload, in ProceduralAttributes a
     float maxDist = length(g_sceneCB.lights[0].position - attrs.hitPosition);
     
     float lighting = 0.05f;
-    float NdotL = max(dot(attrs.normal, lightDir), 0.0);
-    lighting += NdotL;
-    payload.color = float4(float3(0, 1, 1)*lighting, 1);
+    if (!IsInShadow(lightDir, attrs.hitPosition, maxDist))
+    {
+        float NdotL = max(dot(attrs.normal, lightDir), 0.0);
+        lighting += NdotL;
+    }
+    float4 reflectColor = float4(0, 0, 0, 0);
+    if (payload.recursionDepth == 0)
+    {
+        reflectColor = ReflectRay(payload.direction, attrs.normal, attrs.hitPosition);
+    }
+    payload.color = (float4(0, 0.7, 0.7, 1) + reflectColor)*lighting;
     
 }
 
