@@ -309,6 +309,7 @@ bool IsCulled(in Ray ray, in float3 hitSurfaceNormal)
 bool IsAValidHit(in Ray ray, in float thit, in float3 hitSurfaceNormal)
 {
     return IsInRange(thit, RayTMin(), RayTCurrent()) && !IsCulled(ray, hitSurfaceNormal);
+    //return IsInRange(thit, RayTMin(), RayTCurrent());
 }
 
 void swap(inout float a, inout float b)
@@ -409,6 +410,7 @@ bool RaySphereIntersectionTest(in Ray ray, out float thit, out float tmax, out P
         if (IsAValidHit(ray, t1, attr.normal))
         {
             thit = t1;
+            attr.hitPosition = center + attr.normal * radius;
             return true;
         }
     }
@@ -418,6 +420,7 @@ bool RaySphereIntersectionTest(in Ray ray, out float thit, out float tmax, out P
         if (IsAValidHit(ray, t0, attr.normal))
         {
             thit = t0;
+            attr.hitPosition = center + attr.normal * radius;
             return true;
         }
 
@@ -425,6 +428,7 @@ bool RaySphereIntersectionTest(in Ray ray, out float thit, out float tmax, out P
         if (IsAValidHit(ray, t1, attr.normal))
         {
             thit = t1;
+            attr.hitPosition = center + attr.normal * radius;
             return true;
         }
     }
@@ -495,12 +499,19 @@ void MySimpleIntersectionShader()
 
 
 [shader("closesthit")]
-void MyClosestHitShader_AABB(inout RayPayload rayPayload, in ProceduralAttributes attrs)
+void MyClosestHitShader_AABB(inout RayPayload payload, in ProceduralAttributes attrs)
 {
     // PERFORMANCE TIP: it is recommended to minimize values carry over across TraceRay() calls. 
     // Therefore, in cases like retrieving HitWorldPosition(), it is recomputed every time.=
-
-    rayPayload.color = float4(0, 1, 1, 1);
+    float3 lightDir = normalize(g_sceneCB.lights[0].position - attrs.hitPosition);
+    //float3 lightDir = normalize(float3(0, 0, -1));
+    float maxDist = length(g_sceneCB.lights[0].position - attrs.hitPosition);
+    
+    float lighting = 0.05f;
+    float NdotL = max(dot(attrs.normal, lightDir), 0.0);
+    lighting += NdotL;
+    payload.color = float4(float3(0, 1, 1)*lighting, 1);
+    
 }
 
 #endif // RAYTRACING_HLSL
