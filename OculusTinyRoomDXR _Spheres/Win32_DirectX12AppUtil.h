@@ -588,12 +588,10 @@ struct DirectX12
 
     const wchar_t* c_raygenShaderName = L"MyRaygenShader";
     const wchar_t* c_closestHitShaderName = L"MyClosestHitShader";
-    const wchar_t* c_simpleHitShaderName = L"SimpleHitShader";
-    const wchar_t* c_aabbClosestHitShaderName = L"MyClosestHitShader_AABB";
+    const wchar_t* c_aabbClosestHitShaderName = L"MySphereClosestHitShader";
     const wchar_t* c_intersectionShaderName = L"MySimpleIntersectionShader";
     const wchar_t* c_missShaderName = L"MyMissShader";
     const wchar_t* c_triangleHitGroupName = L"TriangleHitGroup";
-    const wchar_t* c_simpleTriangleHitGroupName = L"TriangleHitGroup1";
     const wchar_t* c_aabbHitGroupName = L"AABBHitGroup";
 
 
@@ -771,11 +769,6 @@ struct DirectX12
         hitGroup->SetClosestHitShaderImport(c_closestHitShaderName);
         hitGroup->SetHitGroupExport(c_triangleHitGroupName);
         hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
-
-        auto hitGroup1 = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
-        hitGroup1->SetClosestHitShaderImport(c_simpleHitShaderName);
-        hitGroup1->SetHitGroupExport(c_simpleTriangleHitGroupName);
-        hitGroup1->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
 
         auto aabbGroup = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
         aabbGroup->SetIntersectionShaderImport(c_intersectionShaderName);
@@ -1301,15 +1294,13 @@ struct DirectX12
         void* missShaderIdentifier;
         void* hitGroupShaderIdentifier;
         void* hitGroupShaderIdentifier1;
-        void* hitGroupShaderIdentifier2;
 
         auto GetShaderIdentifiers = [&](auto* stateObjectProperties)
             {
                 rayGenShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_raygenShaderName);
                 missShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_missShaderName);
                 hitGroupShaderIdentifier = stateObjectProperties->GetShaderIdentifier(c_triangleHitGroupName);
-                hitGroupShaderIdentifier1 = stateObjectProperties->GetShaderIdentifier(c_simpleTriangleHitGroupName);
-                hitGroupShaderIdentifier2 = stateObjectProperties->GetShaderIdentifier(c_aabbHitGroupName);
+                hitGroupShaderIdentifier1 = stateObjectProperties->GetShaderIdentifier(c_aabbHitGroupName);
             };
 
         // Get shader identifiers.
@@ -1353,7 +1344,6 @@ struct DirectX12
             ShaderTable hitGroupShaderTable(Device, numShaderRecords, shaderRecordSize, L"HitGroupShaderTable");
             hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier, shaderIdentifierSize));
             hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier1, shaderIdentifierSize));
-            hitGroupShaderTable.push_back(ShaderRecord(hitGroupShaderIdentifier2, shaderIdentifierSize));
             m_hitGroupShaderTable = hitGroupShaderTable.GetResource();
         }
     }
@@ -1964,10 +1954,12 @@ struct Material
     }
 };
 
+//-----------------------------------------------------
 struct ModelComponent
 {
     XMFLOAT3X4 transform;
     XMFLOAT4 color;
+    UINT instanceIndex;
 
     void SetIdentity()
     {
@@ -2014,15 +2006,17 @@ struct ModelComponent
         this->color.w = 1.0f;
     }
 
-    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color)
+    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color, UINT instanceId)
     {
         SetIdentity();
         SetAsBox(x1, y1, z1, x2, y2, z2);
         GetNormalizedRGB(color);
+        instanceIndex = instanceId;
     }
 
 };
 
+//-----------------------------------------------------
 struct Vertex
 {
     XMFLOAT3 position;
@@ -2037,6 +2031,7 @@ struct Vertex
     }
 };
 
+//-----------------------------------------------------
 struct VertexBuffer
 {
     DirectX12::D3DBuffer indexBuffer;
@@ -2228,13 +2223,6 @@ struct VertexBuffer
         ID3D12Resource* scratchResource;
         DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ScratchDataSizeInBytes, &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, L"ScratchResource");
 
-        // Allocate resources for acceleration structures.
-        // Acceleration structures can only be placed in resources that are created in the default heap (or custom heap equivalent). 
-        // Default heap is OK since the application doesn’t need CPU read/write access to them. 
-        // The resources that will contain acceleration structures must be created in the state D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, 
-        // and must have resource flag D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. The ALLOW_UNORDERED_ACCESS requirement simply acknowledges both: 
-        //  - the system will be doing this type of access in its implementation of acceleration structure builds behind the scenes.
-        //  - from the app point of view, synchronization of writes/reads to acceleration structures is accomplished using UAV barriers.
         {
             D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
 
@@ -2269,6 +2257,7 @@ struct VertexBuffer
     }
 };
 
+//-----------------------------------------------------
 struct Model
 {
     std::vector<ModelComponent> components;
@@ -2280,6 +2269,21 @@ struct Model
     {
         this->components = components;
         this->material = material;
+    }
+
+    void Translate(XMFLOAT3 translation)
+    {
+        for (int i = 0; i < components.size(); i++)
+        {
+            components[i].transform.m[0][3] += translation.x;
+            components[i].transform.m[1][3] += translation.y;
+            components[i].transform.m[2][3] += translation.z;
+        }
+    }
+
+    void SetPosition(XMVECTOR position)
+    {
+
     }
 };
 
@@ -2325,6 +2329,8 @@ struct Scene
 
     VertexBuffer boxVertexBuffer;
     VertexBuffer aabbVertexBuffer;
+
+    std::vector<Model> models;
 
     ID3D12Resource* instanceDescs;
     D3D12_RAYTRACING_INSTANCE_DESC* instanceDescsArray;
@@ -2435,11 +2441,12 @@ struct Scene
                 index++;
             }
         }
+
         instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
         instanceDescsArray[index].Transform[0][0] = instanceDescsArray[index].Transform[1][1] = instanceDescsArray[index].Transform[2][2] = 1;
         instanceDescsArray[index].InstanceID = index;
         instanceDescsArray[index].InstanceMask = 1;
-        instanceDescsArray[index].InstanceContributionToHitGroupIndex = 2;
+        instanceDescsArray[index].InstanceContributionToHitGroupIndex = 1;
         instanceDescsArray[index].AccelerationStructure = aabbVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances*sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs, L"InstanceDescs");
 
@@ -2558,68 +2565,60 @@ struct Scene
     {
         CreateConstantBuffers();
         std::vector<ModelComponent> transforms;
-        std::vector<Model> models;
         numInstances = 0;
 
-        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
+        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
         models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
         
-        numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
-        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000, numInstances++));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000, numInstances++));
         models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
 
 
-        numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
-        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
-        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080, numInstances++));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080, numInstances++));
+        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080, numInstances++));
         models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1)));
 
-        numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
-        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080, numInstances++));
+        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080, numInstances++));
         models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
 
-        numInstances += transforms.size();
         transforms.clear();
-        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
+        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080, numInstances++));
         models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
 
-
-        numInstances += transforms.size();
         transforms.clear();
         //TriangleSet furniture;
-        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838));    // Right side shelf// Verticals
-        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838));   // Right side shelf
-        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838)); // Right side shelf// Horizontals
-        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838)); // Right side shelf
-        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838));   // Right railing
-        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838));   // Left railing
+        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838, numInstances++));    // Right side shelf// Verticals
+        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838, numInstances++));   // Right side shelf
+        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838, numInstances++)); // Right side shelf// Horizontals
+        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838, numInstances++)); // Right side shelf
+        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838, numInstances++));   // Right railing
+        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838, numInstances++));   // Left railing
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050)); // Left Bars
+            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050, numInstances++)); // Left Bars
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050)); // Right Bars
-        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000));  // Table
-        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000)); // Table Leg
-        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000)); // Table Leg
-        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000));  // Table Leg
-        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000));  // Table Leg
-        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050));  // Chair Set
-        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050)); // Chair Leg 1
-        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050)); // Chair Back high bar
+            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050, numInstances++)); // Right Bars
+        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000, numInstances++));  // Table
+        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000, numInstances++)); // Table Leg
+        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000, numInstances++)); // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000, numInstances++));  // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000, numInstances++));  // Table Leg
+        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050, numInstances++));  // Chair Set
+        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050, numInstances++)); // Chair Leg 1
+        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050, numInstances++)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050, numInstances++)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050, numInstances++)); // Chair Leg 2
+        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050, numInstances++)); // Chair Back high bar
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
-            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
+            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040, numInstances++)); // Posts
 
         models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
-        numInstances += transforms.size();
         BuildAccelerationStructures(models);
     }
 

@@ -373,8 +373,8 @@ static bool MainLoop(bool retryCreate)
             result = ovr_GetInputState(session, ovrControllerType_Touch, &inputState);
             float thumbstickX = inputState.Thumbstick[ovrHand_Left].x;
             float thumbstickY = inputState.Thumbstick[ovrHand_Left].y;
-            XMVECTOR movement = XMVectorAdd(XMVectorScale(forward, thumbstickY), XMVectorScale(right, thumbstickX));
-            mainCamPos = XMVectorAdd(mainCamPos, movement);
+            XMVECTOR horMovement = XMVectorAdd(XMVectorScale(forward, thumbstickY), XMVectorScale(right, thumbstickX));
+            mainCamPos = XMVectorAdd(mainCamPos, horMovement);
             
             if (DIRECTX.Key[VK_LEFT])  mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw += 0.02f, 0);
             if (DIRECTX.Key[VK_RIGHT]) mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw -= 0.02f, 0);
@@ -383,8 +383,8 @@ static bool MainLoop(bool retryCreate)
 
             float leftBottomTrigger = inputState.IndexTrigger[ovrHand_Left];
             float rightBottomTrigger = inputState.IndexTrigger[ovrHand_Right];
-            movement = XMVectorScale({0, 1, 0, 0}, (-leftBottomTrigger+rightBottomTrigger)*0.05f);
-            mainCamPos = XMVectorAdd(mainCamPos, movement);
+            XMVECTOR vertMovement = XMVectorScale({0, 1, 0, 0}, (-leftBottomTrigger+rightBottomTrigger)*0.05f);
+            mainCamPos = XMVectorAdd(mainCamPos, vertMovement);
 
             mainCam->SetPosVec(mainCamPos);
             mainCam->SetRotVec(mainCamRot);
@@ -429,7 +429,7 @@ static bool MainLoop(bool retryCreate)
 
                 // Update the laft hand position and orientation
                 XMVECTOR posVec = { leftControllerPosition.x, leftControllerPosition.y, leftControllerPosition.z, 0 };
-                posVec = XMVectorAdd(XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot)), movement);
+                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
 
                 XMVECTOR handQuat = XMVectorSet(leftControllerOrientation.x, leftControllerOrientation.y,
                     leftControllerOrientation.z, leftControllerOrientation.w);
@@ -445,7 +445,7 @@ static bool MainLoop(bool retryCreate)
 
                 // Now update the right hand
                 posVec = { rightControllerPosition.x, rightControllerPosition.y, rightControllerPosition.z, 0 };
-                posVec = XMVectorAdd(XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot)), movement);
+                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
 
                 handQuat = XMVectorSet(rightControllerOrientation.x, rightControllerOrientation.y,
                     rightControllerOrientation.z, rightControllerOrientation.w);
