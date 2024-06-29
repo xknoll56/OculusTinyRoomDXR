@@ -2281,10 +2281,7 @@ struct Model
         }
     }
 
-    void SetPosition(XMVECTOR position)
-    {
-
-    }
+    
 };
 
 #define MAX_INSTANCES 400
