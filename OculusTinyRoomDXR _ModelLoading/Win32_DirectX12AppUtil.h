@@ -2204,82 +2204,83 @@ struct VertexBuffer
     }
 
 
-    std::vector<Vertex> InitObj(const std::string& filename) {
-        std::vector<UINT> indices;
-        tinyobj::ObjReaderConfig reader_config;
-        reader_config.mtl_search_path = ""; // Path to material files
+	void InitObj(const std::string& filename)
+	{
+		std::vector<UINT> indices;
+		tinyobj::ObjReaderConfig reader_config;
+		reader_config.mtl_search_path = ""; // Path to material files
 
-        tinyobj::ObjReader reader;
+		tinyobj::ObjReader reader;
 
-        if (!reader.ParseFromFile(filename, reader_config)) {
-            if (!reader.Error().empty()) {
-                //std::cerr << "TinyObjReader: " << reader.Error();
-            }
-            exit(1);
-        }
+		if (!reader.ParseFromFile(filename, reader_config)) {
+			if (!reader.Error().empty()) {
+				//std::cerr << "TinyObjReader: " << reader.Error();
+			}
+			exit(1);
+		}
 
-        if (!reader.Warning().empty()) {
-            //std::cout << "TinyObjReader: " << reader.Warning();
-        }
+		if (!reader.Warning().empty()) {
+			//std::cout << "TinyObjReader: " << reader.Warning();
+		}
 
-        auto& attrib = reader.GetAttrib();
-        auto& shapes = reader.GetShapes();
-        auto& materials = reader.GetMaterials();
+		auto& attrib = reader.GetAttrib();
+		auto& shapes = reader.GetShapes();
+		auto& materials = reader.GetMaterials();
 
-        std::vector<Vertex> vertices;
+		std::vector<Vertex> vertices;
 
-        // Create a hash function for the Vertex
-        struct VertexHash {
-            std::size_t operator()(const Vertex& vertex) const {
-                return ((std::hash<float>()(vertex.position.x) ^ (std::hash<float>()(vertex.position.y) << 1)) >> 1) ^
-                    ((std::hash<float>()(vertex.position.z) ^ (std::hash<float>()(vertex.normal.x) << 1)) >> 1) ^
-                    ((std::hash<float>()(vertex.normal.y) ^ (std::hash<float>()(vertex.normal.z) << 1)) >> 1) ^
-                    ((std::hash<float>()(vertex.uv.x) ^ (std::hash<float>()(vertex.uv.y) << 1)) >> 1);
-            }
-        };
+		// Create a hash function for the Vertex
+		struct VertexHash {
+			std::size_t operator()(const Vertex& vertex) const {
+				return ((std::hash<float>()(vertex.position.x) ^ (std::hash<float>()(vertex.position.y) << 1)) >> 1) ^
+					((std::hash<float>()(vertex.position.z) ^ (std::hash<float>()(vertex.normal.x) << 1)) >> 1) ^
+					((std::hash<float>()(vertex.normal.y) ^ (std::hash<float>()(vertex.normal.z) << 1)) >> 1) ^
+					((std::hash<float>()(vertex.uv.x) ^ (std::hash<float>()(vertex.uv.y) << 1)) >> 1);
+			}
+		};
 
-        std::unordered_map<Vertex, unsigned int, VertexHash> uniqueVertices;
+		std::unordered_map<Vertex, unsigned int, VertexHash> uniqueVertices;
 
-        // Loop over shapes
-        for (const auto& shape : shapes) {
-            // Loop over faces (polygons)
-            for (const auto& index : shape.mesh.indices) {
-                Vertex vertex = { 0,0,0,0,0,0,0,0 };
+		// Loop over shapes
+		for (const auto& shape : shapes) {
+			// Loop over faces (polygons)
+			for (const auto& index : shape.mesh.indices) {
+				Vertex vertex = { 0,0,0,0,0,0,0,0 };
 
-                vertex.position.x = attrib.vertices[3 * index.vertex_index + 0];
-                vertex.position.y = attrib.vertices[3 * index.vertex_index + 1];
-                vertex.position.z = attrib.vertices[3 * index.vertex_index + 2];
+				vertex.position.x = attrib.vertices[3 * index.vertex_index + 0];
+				vertex.position.y = attrib.vertices[3 * index.vertex_index + 1];
+				vertex.position.z = attrib.vertices[3 * index.vertex_index + 2];
 
-                if (index.normal_index >= 0) {
-                    vertex.normal.x = attrib.normals[3 * index.normal_index + 0];
-                    vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
-                    vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
-                }
+				if (index.normal_index >= 0) {
+					vertex.normal.x = attrib.normals[3 * index.normal_index + 0];
+					vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
+					vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
+				}
 
-                if (index.texcoord_index >= 0) {
-                    vertex.uv.x = attrib.texcoords[2 * index.texcoord_index + 0];
-                    vertex.uv.y = attrib.texcoords[2 * index.texcoord_index + 1];
-                }
+				if (index.texcoord_index >= 0) {
+					vertex.uv.x = attrib.texcoords[2 * index.texcoord_index + 0];
+					vertex.uv.y = attrib.texcoords[2 * index.texcoord_index + 1];
+				}
 
-                // Check if the vertex is unique
-                if (uniqueVertices.count(vertex) == 0) {
-                    uniqueVertices[vertex] = static_cast<unsigned int>(vertices.size());
-                    vertices.push_back(vertex);
-                }
+				// Check if the vertex is unique
+				if (uniqueVertices.count(vertex) == 0) {
+					uniqueVertices[vertex] = static_cast<unsigned int>(vertices.size());
+					vertices.push_back(vertex);
+				}
 
-                indices.push_back(uniqueVertices[vertex]);
-            }
-        }
+				indices.push_back(uniqueVertices[vertex]);
+			}
+		}
 
-        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, vertices.data(), sizeof(Vertex) * vertices.size(), &vertexBuffer.resource);
-        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, indices.data(), sizeof(UINT) * indices.size(), &indexBuffer.resource);
+		DIRECTX.AllocateUploadBuffer(DIRECTX.Device, vertices.data(), sizeof(Vertex) * vertices.size(), &vertexBuffer.resource);
+		DIRECTX.AllocateUploadBuffer(DIRECTX.Device, indices.data(), sizeof(UINT) * indices.size(), &indexBuffer.resource);
 
-        // Vertex buffer is passed to the shader along with index buffer as a descriptor table.
-        // Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
-        UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&indexBuffer, sizeof(indices) / 4, 0);
-        UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, vertices.size(), sizeof(vertices[0]));
-        ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
-    }
+		// Vertex buffer is passed to the shader along with index buffer as a descriptor table.
+		// Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
+		UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&indexBuffer, sizeof(indices) / 4, 0);
+		UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, vertices.size(), sizeof(vertices[0]));
+		ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
+	}
 };
 //-----------------------------------------------------
 struct ModelComponent
@@ -2306,6 +2307,7 @@ struct ModelComponent
     ModelComponent()
     {
         SetIdentity();
+        GetNormalizedRGB(0xffffffff);
         pVertexBuffer = nullptr;
     }
 
@@ -2757,6 +2759,8 @@ struct Scene
         numInstances(0)
     {
         CreateConstantBuffers();
+        boxVertexBuffer.InitBox();
+        boxVertexBuffer.InitBottomLevelAccelerationObject();
     }
     void Release()
     {
@@ -2781,14 +2785,11 @@ struct SceneModel : Scene
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
-        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
-        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
-
-        boxVertexBuffer.InitBox();
-        boxVertexBuffer.InitBottomLevelAccelerationObject();
+        //transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
+        //models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
 
         model.InitObj("monkey.obj");
-        model.InitAABBBottomLevelAccelerationObject();
+        model.InitBottomLevelAccelerationObject();
         ModelComponent monkeyComponent;
         monkeyComponent.instanceIndex = numInstances++;
         monkeyComponent.pVertexBuffer = &model;

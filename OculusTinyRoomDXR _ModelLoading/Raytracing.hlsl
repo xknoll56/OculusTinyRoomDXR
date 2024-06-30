@@ -183,6 +183,8 @@ float4 ReflectRay(float3 rayDir, float3 normal, float3 hitPosition, float reflec
 [shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 {
+    //payload.color = float4(1, 1, 1, 1);
+    //return;
     if (payload.recursionDepth == 1 && InstanceID() != 6)
     {
         payload.depth = RayTCurrent();
