@@ -1957,68 +1957,6 @@ struct Material
 };
 
 //-----------------------------------------------------
-struct ModelComponent
-{
-    XMFLOAT3X4 transform;
-    XMFLOAT4 color;
-    UINT instanceIndex;
-
-    void SetIdentity()
-    {
-        for (int i = 0; i < 3; i++)
-        {
-            for (int j = 0; j < 4; j++)
-            {
-                if (i == j)
-                    transform.m[i][j] = 1;
-                else
-                    transform.m[i][j] = 0;
-            }
-        }
-    }
-
-    ModelComponent()
-    {
-        SetIdentity();
-    }
-
-    void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
-    {
-        // Set position
-        transform.m[0][3] = (x1 + x2) * 0.5f;
-        transform.m[1][3] = (y1 + y2) * 0.5f;
-        transform.m[2][3] = (z1 + z2) * 0.5f;
-
-        // Set scale
-        transform.m[0][0] = fabsf(x2 - x1);
-        transform.m[1][1] = fabsf(y2 - y1);
-        transform.m[2][2] = fabsf(z2 - z1);
-    }
-
-    void GetNormalizedRGB(uint32_t color) {
-        // Extract individual color components
-        uint8_t r = (color >> 16) & 0xFF; // Red component
-        uint8_t g = (color >> 8) & 0xFF;  // Green component
-        uint8_t b = color & 0xFF;         // Blue component
-
-        // Normalize to range [0, 1]
-        this->color.x = static_cast<float>(r) / 255.0f;
-        this->color.y = static_cast<float>(g) / 255.0f;
-        this->color.z = static_cast<float>(b) / 255.0f;
-        this->color.w = 1.0f;
-    }
-
-    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color, UINT instanceId)
-    {
-        SetIdentity();
-        SetAsBox(x1, y1, z1, x2, y2, z2);
-        GetNormalizedRGB(color);
-        instanceIndex = instanceId;
-    }
-
-};
-
-//-----------------------------------------------------
 struct Vertex
 {
     XMFLOAT3 position;
@@ -2031,8 +1969,15 @@ struct Vertex
         normal = { nx, ny, nz };
         uv = { u, v };
     }
+
+    bool operator==(const Vertex& other) const {
+        return position.x == other.position.x && position.y == other.position.y && position.z == other.position.z &&
+            normal.x == other.normal.x && normal.y == other.normal.y && normal.z == other.normal.z &&
+            uv.x == other.uv.x && uv.y == other.uv.y;
+    }
 };
 
+#include <unordered_map>
 //-----------------------------------------------------
 struct VertexBuffer
 {
@@ -2257,6 +2202,148 @@ struct VertexBuffer
         DIRECTX.WaitForGpu();
         scratchResource->Release();
     }
+
+
+    std::vector<Vertex> InitObj(const std::string& filename) {
+        std::vector<UINT> indices;
+        tinyobj::ObjReaderConfig reader_config;
+        reader_config.mtl_search_path = ""; // Path to material files
+
+        tinyobj::ObjReader reader;
+
+        if (!reader.ParseFromFile(filename, reader_config)) {
+            if (!reader.Error().empty()) {
+                //std::cerr << "TinyObjReader: " << reader.Error();
+            }
+            exit(1);
+        }
+
+        if (!reader.Warning().empty()) {
+            //std::cout << "TinyObjReader: " << reader.Warning();
+        }
+
+        auto& attrib = reader.GetAttrib();
+        auto& shapes = reader.GetShapes();
+        auto& materials = reader.GetMaterials();
+
+        std::vector<Vertex> vertices;
+
+        // Create a hash function for the Vertex
+        struct VertexHash {
+            std::size_t operator()(const Vertex& vertex) const {
+                return ((std::hash<float>()(vertex.position.x) ^ (std::hash<float>()(vertex.position.y) << 1)) >> 1) ^
+                    ((std::hash<float>()(vertex.position.z) ^ (std::hash<float>()(vertex.normal.x) << 1)) >> 1) ^
+                    ((std::hash<float>()(vertex.normal.y) ^ (std::hash<float>()(vertex.normal.z) << 1)) >> 1) ^
+                    ((std::hash<float>()(vertex.uv.x) ^ (std::hash<float>()(vertex.uv.y) << 1)) >> 1);
+            }
+        };
+
+        std::unordered_map<Vertex, unsigned int, VertexHash> uniqueVertices;
+
+        // Loop over shapes
+        for (const auto& shape : shapes) {
+            // Loop over faces (polygons)
+            for (const auto& index : shape.mesh.indices) {
+                Vertex vertex = { 0,0,0,0,0,0,0,0 };
+
+                vertex.position.x = attrib.vertices[3 * index.vertex_index + 0];
+                vertex.position.y = attrib.vertices[3 * index.vertex_index + 1];
+                vertex.position.z = attrib.vertices[3 * index.vertex_index + 2];
+
+                if (index.normal_index >= 0) {
+                    vertex.normal.x = attrib.normals[3 * index.normal_index + 0];
+                    vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
+                    vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
+                }
+
+                if (index.texcoord_index >= 0) {
+                    vertex.uv.x = attrib.texcoords[2 * index.texcoord_index + 0];
+                    vertex.uv.y = attrib.texcoords[2 * index.texcoord_index + 1];
+                }
+
+                // Check if the vertex is unique
+                if (uniqueVertices.count(vertex) == 0) {
+                    uniqueVertices[vertex] = static_cast<unsigned int>(vertices.size());
+                    vertices.push_back(vertex);
+                }
+
+                indices.push_back(uniqueVertices[vertex]);
+            }
+        }
+
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, vertices.data(), sizeof(Vertex) * vertices.size(), &vertexBuffer.resource);
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, indices.data(), sizeof(UINT) * indices.size(), &indexBuffer.resource);
+
+        // Vertex buffer is passed to the shader along with index buffer as a descriptor table.
+        // Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
+        UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&indexBuffer, sizeof(indices) / 4, 0);
+        UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, vertices.size(), sizeof(vertices[0]));
+        ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
+    }
+};
+//-----------------------------------------------------
+struct ModelComponent
+{
+    XMFLOAT3X4 transform;
+    XMFLOAT4 color;
+    UINT instanceIndex;
+    VertexBuffer* pVertexBuffer;
+
+    void SetIdentity()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 4; j++)
+            {
+                if (i == j)
+                    transform.m[i][j] = 1;
+                else
+                    transform.m[i][j] = 0;
+            }
+        }
+    }
+
+    ModelComponent()
+    {
+        SetIdentity();
+        pVertexBuffer = nullptr;
+    }
+
+    void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
+    {
+        // Set position
+        transform.m[0][3] = (x1 + x2) * 0.5f;
+        transform.m[1][3] = (y1 + y2) * 0.5f;
+        transform.m[2][3] = (z1 + z2) * 0.5f;
+
+        // Set scale
+        transform.m[0][0] = fabsf(x2 - x1);
+        transform.m[1][1] = fabsf(y2 - y1);
+        transform.m[2][2] = fabsf(z2 - z1);
+    }
+
+    void GetNormalizedRGB(uint32_t color) {
+        // Extract individual color components
+        uint8_t r = (color >> 16) & 0xFF; // Red component
+        uint8_t g = (color >> 8) & 0xFF;  // Green component
+        uint8_t b = color & 0xFF;         // Blue component
+
+        // Normalize to range [0, 1]
+        this->color.x = static_cast<float>(r) / 255.0f;
+        this->color.y = static_cast<float>(g) / 255.0f;
+        this->color.z = static_cast<float>(b) / 255.0f;
+        this->color.w = 1.0f;
+    }
+
+    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color, UINT instanceId)
+    {
+        SetIdentity();
+        SetAsBox(x1, y1, z1, x2, y2, z2);
+        GetNormalizedRGB(color);
+        instanceIndex = instanceId;
+        pVertexBuffer = nullptr;
+    }
+
 };
 
 //-----------------------------------------------------
@@ -2264,7 +2351,6 @@ struct Model
 {
     std::vector<ModelComponent> components;
     Material material;
-    VertexBuffer* pVertexBuffer;
     
 
     Model(std::vector<ModelComponent> components, Material material)
@@ -2391,14 +2477,11 @@ struct Scene
     // Build acceleration structures needed for raytracing.
     void BuildAccelerationStructures(std::vector<Model> boxModels)
     {
-        
-        boxVertexBuffer.InitBox();
-        boxVertexBuffer.InitBottomLevelAccelerationObject();
-        aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
+       
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
-        numInstances++;
+        //numInstances++;
         instanceDescsArray = new D3D12_RAYTRACING_INSTANCE_DESC[numInstances];
         UINT index = 0;
         for (int i = 0; i < boxModels.size(); ++i) {
@@ -2416,10 +2499,13 @@ struct Scene
                     }
                 }
                 instanceDescsArray[index].InstanceMask = 1;
-                if (index == 0)
-                    instanceDescsArray[index].InstanceMask = 0;
+                //if (index == 0)
+                //    instanceDescsArray[index].InstanceMask = 0;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
-                instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+                if (boxModels[i].components[j].pVertexBuffer == nullptr)
+                    instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+                else
+                    instanceDescsArray[index].AccelerationStructure = boxModels[i].components[j].pVertexBuffer->m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
                 instanceData[index].textureId = boxModels[i].material.TexIndex;
                 if (x >= z && y >= z)
                 {
@@ -2441,12 +2527,12 @@ struct Scene
             }
         }
 
-        instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
-        instanceDescsArray[index].Transform[0][0] = instanceDescsArray[index].Transform[1][1] = instanceDescsArray[index].Transform[2][2] = 1;
-        instanceDescsArray[index].InstanceID = index;
-        instanceDescsArray[index].InstanceMask = 1;
-        instanceDescsArray[index].InstanceContributionToHitGroupIndex = 1;
-        instanceDescsArray[index].AccelerationStructure = aabbVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+        //instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
+        //instanceDescsArray[index].Transform[0][0] = instanceDescsArray[index].Transform[1][1] = instanceDescsArray[index].Transform[2][2] = 1;
+        //instanceDescsArray[index].InstanceID = index;
+        //instanceDescsArray[index].InstanceMask = 1;
+        //instanceDescsArray[index].InstanceContributionToHitGroupIndex = 1;
+        //instanceDescsArray[index].AccelerationStructure = aabbVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances*sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs, L"InstanceDescs");
 
 
@@ -2560,9 +2646,8 @@ struct Scene
        DispatchRays(currFrameRes.m_dxrCommandList[DIRECTX.ActiveContext].Get(), DIRECTX.m_dxrStateObject.Get(), &dispatchDesc);
     }
 
-    void Init(bool includeIntensiveGPUobject)
+    virtual void Init(bool includeIntensiveGPUobject)
     {
-        CreateConstantBuffers();
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
@@ -2618,6 +2703,12 @@ struct Scene
             transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040, numInstances++)); // Posts
 
         models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
+
+        boxVertexBuffer.InitBox();
+        boxVertexBuffer.InitBottomLevelAccelerationObject();
+        aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
+
+
         BuildAccelerationStructures(models);
     }
 
@@ -2665,7 +2756,7 @@ struct Scene
     Scene(bool includeIntensiveGPUobject) :
         numInstances(0)
     {
-        Init(includeIntensiveGPUobject);
+        CreateConstantBuffers();
     }
     void Release()
     {
@@ -2674,6 +2765,38 @@ struct Scene
     ~Scene()
     {
         Release();
+    }
+};
+
+//-----------------------------------------------------------
+struct SceneModel : Scene
+{
+    SceneModel() : Scene() {}
+    SceneModel(bool includeIntesndiveGPUobject) : Scene(includeIntesndiveGPUobject) {}
+    VertexBuffer model;
+
+    void Init(bool includeIntensiveGPUobject) override
+    {
+        
+        std::vector<ModelComponent> transforms;
+        numInstances = 0;
+
+        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
+
+        boxVertexBuffer.InitBox();
+        boxVertexBuffer.InitBottomLevelAccelerationObject();
+
+        model.InitObj("monkey.obj");
+        model.InitAABBBottomLevelAccelerationObject();
+        ModelComponent monkeyComponent;
+        monkeyComponent.instanceIndex = numInstances++;
+        monkeyComponent.pVertexBuffer = &model;
+        transforms.clear();
+        transforms.push_back(monkeyComponent);
+        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
+
+        BuildAccelerationStructures(models);
     }
 };
 
