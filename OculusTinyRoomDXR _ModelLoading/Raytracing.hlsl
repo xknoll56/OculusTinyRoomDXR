@@ -26,9 +26,16 @@ struct Texture
     uint height;
 };
 
+struct VertexBufferData
+{
+    uint vertexOffset;
+    uint indexOffset;
+};
+
 struct InstanceData
 {
     uint textureId;
+    uint vertexBufferId;
     float u;
     float v;
     float3 color;
@@ -42,14 +49,18 @@ struct Light
 };
 
 #define MAX_INSTANCES 400
+#define MAX_MODELS 100
+#define MAX_LIGHTS 4
+#define NUM_TEXTURES 6
 
 struct SceneConstantBuffer
 {
     float4x4 projectionToWorld;
     float4 eyePosition;
     InstanceData instanceData[MAX_INSTANCES];
-    Light lights[4];
-    Texture texture[6];
+    Light lights[MAX_LIGHTS];
+    VertexBufferData vertexBufferDatas[MAX_MODELS];
+    Texture texture[NUM_TEXTURES];
 };
 
 struct Vertex
@@ -183,9 +194,8 @@ float4 ReflectRay(float3 rayDir, float3 normal, float3 hitPosition, float reflec
 [shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 {
-    //payload.color = float4(1, 1, 1, 1);
-    //return;
-    if (payload.recursionDepth == 1 && InstanceID() != 6)
+    uint instanceId = InstanceID();
+    if (payload.recursionDepth == 1 && instanceId != 6)
     {
         payload.depth = RayTCurrent();
     }
@@ -193,13 +203,8 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     {
         float3 barycentrics = float3(1 - attr.barycentrics.x - attr.barycentrics.y, attr.barycentrics.x, attr.barycentrics.y);
 
-        uint startIndexOffset = 0;
-        uint startVertexOffset = 0;
-        if (InstanceID() == 1)
-        {
-            startIndexOffset = 36;
-            startVertexOffset = 24;
-        }
+        uint startIndexOffset = g_sceneCB.vertexBufferDatas[g_sceneCB.instanceData[instanceId].vertexBufferId].indexOffset;
+        uint startVertexOffset = g_sceneCB.vertexBufferDatas[g_sceneCB.instanceData[instanceId].vertexBufferId].vertexOffset;
 
         uint indicesPerTriangle = 3;
         uint primitiveIndex = PrimitiveIndex();
@@ -229,17 +234,17 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
         float2 interpolatedTexcoord = vertexTexcoords[0] * barycentrics.x + vertexTexcoords[1] * barycentrics.y + vertexTexcoords[2] * barycentrics.z;
     // Assuming interpolatedTexcoord ranges from (0,0) to (1,1)
         float2 texcoord = interpolatedTexcoord.xy;
-        texcoord.x *= g_sceneCB.instanceData[InstanceID()].u;
-        texcoord.y *= g_sceneCB.instanceData[InstanceID()].v;
+        texcoord.x *= g_sceneCB.instanceData[instanceId].u;
+        texcoord.y *= g_sceneCB.instanceData[instanceId].v;
     // Perform wrap manually
         texcoord = frac(texcoord); // Keep the fractional part only, effectively wrapping the texture
    
     
     // Sample the texture
-        float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, g_sceneCB.instanceData[InstanceID()].textureId, 0));
+        float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, g_sceneCB.instanceData[instanceId].textureId, 0));
     //float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, 2, 0));
     
-        float4 instanceColor = saturate(float4(g_sceneCB.instanceData[InstanceID()].color, 1.0f) * 2.0f);
+        float4 instanceColor = saturate(float4(g_sceneCB.instanceData[instanceId].color, 1.0f) * 2.0f);
         float4 color = sampledColor * instanceColor;
     
 
@@ -273,7 +278,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
         }
         
         float4 reflectColor = float4(0, 0, 0, 0);
-        if ((payload.recursionDepth == 0) && InstanceID() == 6)
+        if ((payload.recursionDepth == 0) && instanceId == 6)
         {
             reflectColor = ReflectRay(payload.direction, triangleNormal, hitPoint);
         }

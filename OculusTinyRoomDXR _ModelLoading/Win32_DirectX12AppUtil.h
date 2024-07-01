@@ -1990,6 +1990,7 @@ struct VertexBuffer
     std::vector<std::pair<UINT, UINT>> globalStartVBIndices;
     std::vector<std::pair<UINT, UINT>> globalStartIBIndices;
     std::vector<ID3D12Resource*> m_globalBottomLevelAccelerationStructures;
+    UINT numVertexBuffers = 0;
 
     void InitBox()
     {
@@ -2128,6 +2129,11 @@ struct VertexBuffer
             { -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f  ,0.0f, 1.0f},
         };
 
+
+        std::pair<UINT, UINT> startIndices;
+        startIndices.second = globalIndices.size();
+        startIndices.first = globalVertices.size();
+
         std::pair<UINT, UINT> ibStartIndices;
         ibStartIndices.first = globalIndices.size();
         for (int i = 0; i < 36; i++)
@@ -2142,13 +2148,11 @@ struct VertexBuffer
             globalVertices.push_back(vertices[i]);
         }
 
-        std::pair<UINT, UINT> startIndices;
-        startIndices.first = globalIndices.size();
-        startIndices.second = globalVertices.size();
         ibStartIndices.second = globalIndices.size() - ibStartIndices.first;
         vbStartIndices.second = globalVertices.size() - vbStartIndices.first;
         globalStartIBIndices.push_back(ibStartIndices);
         globalStartVBIndices.push_back(vbStartIndices);
+        numVertexBuffers++;
         return startIndices;
     }
 
@@ -2398,7 +2402,7 @@ struct VertexBuffer
         scratchResource->Release();
     }
 
-	void AddGlobalObj(const std::string& filename)
+    std::pair<UINT, UINT> AddGlobalObj(const std::string& filename)
 	{
 		std::vector<UINT> indices;
 		tinyobj::ObjReaderConfig reader_config;
@@ -2466,6 +2470,10 @@ struct VertexBuffer
 			}
 		}
 
+        std::pair<UINT, UINT> startIndices;
+        startIndices.second = globalIndices.size();
+        startIndices.first = globalVertices.size();
+
         std::pair<UINT, UINT> ibStartIndices;
         ibStartIndices.first = globalIndices.size();
         for (int i = 0; i < indices.size(); i++)
@@ -2480,13 +2488,12 @@ struct VertexBuffer
             globalVertices.push_back(vertices[i]);
         }
 
-        std::pair<UINT, UINT> startIndices;
-        startIndices.first = globalIndices.size();
-        startIndices.second = globalVertices.size();
         ibStartIndices.second = globalIndices.size() - ibStartIndices.first;
         vbStartIndices.second = globalVertices.size() - vbStartIndices.first;
         globalStartIBIndices.push_back(ibStartIndices);
         globalStartVBIndices.push_back(vbStartIndices);
+        numVertexBuffers++;
+        return startIndices;
 	}
 };
 //-----------------------------------------------------
@@ -2584,6 +2591,7 @@ struct Model
 };
 
 #define MAX_INSTANCES 400
+#define MAX_VBS 100
 //-------------------------------------------------------------------------
 struct Scene
 {
@@ -2596,7 +2604,8 @@ struct Scene
     struct InstanceData
     {
         UINT textureId;
-        XMFLOAT3 uvx;
+        UINT vertexBufferId;
+        XMFLOAT2 uv;
         XMFLOAT4 color;
     };
 
@@ -2607,12 +2616,20 @@ struct Scene
         float intensity;
     };
 
+    struct VertexBufferData
+    {
+        UINT vertexOffset;
+        UINT indexOffset;
+        XMFLOAT2 padding;
+    };
+
     struct alignas(256) SceneConstantBuffer
     {
         XMMATRIX projectionToWorld;
         XMVECTOR eyePosition;
         InstanceData instanceData[MAX_INSTANCES];
         Light lights[4];
+        VertexBufferData vertexBufferDatas[MAX_VBS];
         TextureData textureResources[Texture::numTextures];
     };
 
@@ -2622,9 +2639,11 @@ struct Scene
     InstanceData instanceData[MAX_INSTANCES];
     UINT numInstances;
     Light lights[4];
+    VertexBufferData vertexBufferDatas[MAX_VBS];
 
     VertexBuffer globalVertexBuffer;
     VertexBuffer aabbVertexBuffer;
+
 
     std::vector<Model> models;
 
@@ -2710,37 +2729,30 @@ struct Scene
                     }
                 }
                 instanceDescsArray[index].InstanceMask = 1;
-                //if (index == 0)
-                //    instanceDescsArray[index].InstanceMask = 0;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = globalVertexBuffer.m_globalBottomLevelAccelerationStructures[boxModels[i].components[j].vbIndex]->GetGPUVirtualAddress();
+                instanceData[index].vertexBufferId = boxModels[i].components[j].vbIndex;
                 instanceData[index].textureId = boxModels[i].material.TexIndex;
                 if (x >= z && y >= z)
                 {
-                    instanceData[index].uvx.x = x;
-                    instanceData[index].uvx.y = y;
+                    instanceData[index].uv.x = x;
+                    instanceData[index].uv.y = y;
                 }
                 else if (y >= x && z >= x)
                 {
-                    instanceData[index].uvx.x = z;
-                    instanceData[index].uvx.y = y;
+                    instanceData[index].uv.x = z;
+                    instanceData[index].uv.y = y;
                 }
                 else
                 {
-                    instanceData[index].uvx.x = x;
-                    instanceData[index].uvx.y = z;
+                    instanceData[index].uv.x = x;
+                    instanceData[index].uv.y = z;
                 }
                 instanceData[index].color = boxModels[i].components[j].color;
                 index++;
             }
         }
 
-        //instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
-        //instanceDescsArray[index].Transform[0][0] = instanceDescsArray[index].Transform[1][1] = instanceDescsArray[index].Transform[2][2] = 1;
-        //instanceDescsArray[index].InstanceID = index;
-        //instanceDescsArray[index].InstanceMask = 1;
-        //instanceDescsArray[index].InstanceContributionToHitGroupIndex = 1;
-        //instanceDescsArray[index].AccelerationStructure = aabbVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, instanceDescsArray, numInstances*sizeof(D3D12_RAYTRACING_INSTANCE_DESC), &instanceDescs, L"InstanceDescs");
 
 
@@ -2836,6 +2848,7 @@ struct Scene
         m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0].height = 256;
         memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].instanceData[0], &instanceData[0], numInstances * sizeof(InstanceData));
         memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].lights[0], &lights[0], 4 * sizeof(Light));
+        memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].vertexBufferDatas[0], &vertexBufferDatas[0], MAX_VBS * sizeof(VertexBufferData));
 
         // Copy the updated scene constant buffer to GPU.
         memcpy(&m_mappedConstantData[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], &m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], 
@@ -2965,7 +2978,9 @@ struct Scene
         numInstances(0)
     {
         CreateConstantBuffers();
-        globalVertexBuffer.AddBoxToGlobal();
+        std::pair<UINT, UINT> indexData = globalVertexBuffer.AddBoxToGlobal();
+        vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].vertexOffset = indexData.first;
+        vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].indexOffset = indexData.second;
     }
     void Release()
     {
@@ -2986,17 +3001,17 @@ struct SceneModel : Scene
 
     void Init(bool includeIntensiveGPUobject) override
     {
+
+        std::pair<UINT, UINT> indexData = globalVertexBuffer.AddGlobalObj("monkey.obj");
+        vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].vertexOffset = indexData.first;
+        vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].indexOffset = indexData.second;
         
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
-        
-        
-
         transforms.push_back(ModelComponent(3.5f, -0.5f, 0.5f, 2.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
         models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
-        globalVertexBuffer.AddGlobalObj("monkey.obj");
         ModelComponent monkeyComponent;
         monkeyComponent.instanceIndex = numInstances++;
         monkeyComponent.vbIndex = 1;
