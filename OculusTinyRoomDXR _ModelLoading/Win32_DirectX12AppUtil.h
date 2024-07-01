@@ -1977,6 +1977,7 @@ struct Vertex
     }
 };
 
+
 #include <unordered_map>
 //-----------------------------------------------------
 struct VertexBuffer
@@ -1984,6 +1985,11 @@ struct VertexBuffer
     DirectX12::D3DBuffer indexBuffer;
     DirectX12::D3DBuffer vertexBuffer;
     ComPtr<ID3D12Resource> m_bottomLevelAccelerationStructure;
+    std::vector<Vertex> globalVertices;
+    std::vector<UINT> globalIndices;
+    std::vector<std::pair<UINT, UINT>> globalStartVBIndices;
+    std::vector<std::pair<UINT, UINT>> globalStartIBIndices;
+    std::vector<ID3D12Resource*> m_globalBottomLevelAccelerationStructures;
 
     void InitBox()
     {
@@ -2057,6 +2063,192 @@ struct VertexBuffer
         UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&indexBuffer, sizeof(indices) / 4, 0);
         UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, ARRAYSIZE(vertices), sizeof(vertices[0]));
         ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
+    }
+
+    std::pair<UINT, UINT> AddBoxToGlobal()
+    {
+        UINT indices[] =
+        {
+            0, 2, 1,
+            0, 3, 2,
+
+            4, 5, 6,
+            4, 6, 7,
+
+            8, 9, 10,
+            8, 10, 11,
+
+            12, 14, 13,
+            12, 15, 14,
+
+            16, 18, 17,
+            16, 19, 18,
+
+            20, 21, 22,
+            20, 22, 23,
+        };
+
+
+        Vertex vertices[] =
+        {
+            // Back face
+            { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 0.0f},
+            { 0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  1.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,   1.0f, 1.0f},
+            { -0.5f, 0.5f, -0.5f, 0.0f, 0.0f, -1.0f,  0.0f, 1.0f},
+
+            // Front face
+            { -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f , 0.0f, 0.0f},
+            { 0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f   ,1.0f, 1.0f},
+            { -0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f  ,0.0f, 1.0f},
+
+            // Right face
+            { 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
+            { 0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
+            { 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+
+            // Left face
+            { -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f , 0.0f, 0.0f},
+            { -0.5f, 0.5f, -0.5f, -1.0f, 0.0f, 0.0f  ,0.0f, 1.0f},
+            { -0.5f, 0.5f, 0.5f, -1.0f, 0.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, -1.0f, 0.0f, 0.0f  ,1.0f, 0.0f},
+
+            // Top face
+            { -0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f  ,0.0f, 1.0f},
+
+            // Bottom face
+            { -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f , 0.0f, 0.0f},
+            { 0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f  ,1.0f, 0.0f},
+            { 0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f   ,1.0f, 1.0f},
+            { -0.5f, -0.5f, 0.5f, 0.0f, -1.0f, 0.0f  ,0.0f, 1.0f},
+        };
+
+        std::pair<UINT, UINT> ibStartIndices;
+        ibStartIndices.first = globalIndices.size();
+        for (int i = 0; i < 36; i++)
+        {
+            globalIndices.push_back(indices[i]);
+        }
+
+        std::pair<UINT, UINT> vbStartIndices;
+        ibStartIndices.first = globalVertices.size();
+        for (int i = 0; i < 24; i++)
+        {
+            globalVertices.push_back(vertices[i]);
+        }
+
+        std::pair<UINT, UINT> startIndices;
+        startIndices.first = globalIndices.size();
+        startIndices.second = globalVertices.size();
+        ibStartIndices.second = globalIndices.size() - ibStartIndices.first;
+        vbStartIndices.second = globalVertices.size() - vbStartIndices.first;
+        globalStartIBIndices.push_back(ibStartIndices);
+        globalStartVBIndices.push_back(vbStartIndices);
+        return startIndices;
+    }
+
+    void InitGlobalVertexBuffers()
+    {
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, globalVertices.data(), globalVertices.size()*sizeof(Vertex), &vertexBuffer.resource);
+        DIRECTX.AllocateUploadBuffer(DIRECTX.Device, globalIndices.data(), globalIndices.size()*sizeof(UINT), &indexBuffer.resource);
+
+        // Vertex buffer is passed to the shader along with index buffer as a descriptor table.
+        // Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
+        UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&indexBuffer, globalIndices.size(), 0);
+        UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, globalVertices.size(), sizeof(Vertex));
+        ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
+    }
+
+    void InitGlobalBottomLevelAccelerationObject()
+    {
+        // Reset the command list for the acceleration structure construction.
+        DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
+
+        m_globalBottomLevelAccelerationStructures.reserve(globalStartIBIndices.size());
+        ID3D12Resource* dummyResource;
+
+        for (int i = 0; i < globalStartIBIndices.size(); i++)
+        {
+            m_globalBottomLevelAccelerationStructures.push_back(dummyResource);
+
+            D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
+            geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+            geometryDesc.Triangles.IndexBuffer = indexBuffer.resource->GetGPUVirtualAddress() + sizeof(UINT)*globalStartIBIndices[i].first;
+            geometryDesc.Triangles.IndexCount = globalStartIBIndices[i].second;
+            geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+            geometryDesc.Triangles.Transform3x4 = 0;
+            geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+            geometryDesc.Triangles.VertexCount = globalStartVBIndices[i].second;
+            geometryDesc.Triangles.VertexBuffer.StartAddress = vertexBuffer.resource->GetGPUVirtualAddress() + sizeof(Vertex) * globalStartVBIndices[i].first;
+            geometryDesc.Triangles.VertexBuffer.StrideInBytes = (sizeof(Vertex));
+
+            // Mark the geometry as opaque. 
+            // PERFORMANCE TIP: mark geometry as opaque whenever applicable as it can enable important ray processing optimizations.
+            // Note: When rays encounter opaque geometry an any hit shader will not be executed whether it is present or not.
+            geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+
+            // Get required sizes for an acceleration structure.
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomLevelInputs = {};
+            bottomLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+            bottomLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+            bottomLevelInputs.Flags = buildFlags;
+            bottomLevelInputs.NumDescs = 1;
+            bottomLevelInputs.pGeometryDescs = &geometryDesc;
+
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
+            DIRECTX.m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&bottomLevelInputs, &bottomLevelPrebuildInfo);
+            ThrowIfFalse(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
+
+            ID3D12Resource* scratchResource;
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ScratchDataSizeInBytes, &scratchResource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+            // Allocate resources for acceleration structures.
+            // Acceleration structures can only be placed in resources that are created in the default heap (or custom heap equivalent). 
+            // Default heap is OK since the application doesn’t need CPU read/write access to them. 
+            // The resources that will contain acceleration structures must be created in the state D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, 
+            // and must have resource flag D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS. The ALLOW_UNORDERED_ACCESS requirement simply acknowledges both: 
+            //  - the system will be doing this type of access in its implementation of acceleration structure builds behind the scenes.
+            //  - from the app point of view, synchronization of writes/reads to acceleration structures is accomplished using UAV barriers.
+            {
+                D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+
+                DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_globalBottomLevelAccelerationStructures[i], initialResourceState, L"BottomLevelAccelerationStructure");
+            }
+
+            // Bottom Level Acceleration Structure desc
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomLevelBuildDesc = {};
+            {
+                bottomLevelBuildDesc.Inputs = bottomLevelInputs;
+                bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
+                bottomLevelBuildDesc.DestAccelerationStructureData = m_globalBottomLevelAccelerationStructures[i]->GetGPUVirtualAddress();
+            }
+
+
+            auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
+                {
+                    raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
+                    CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_globalBottomLevelAccelerationStructures[i]);
+                    DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
+                };
+
+            // Build acceleration structure.
+            BuildAccelerationStructure(DIRECTX.CurrentFrameResources().m_dxrCommandList[DrawContext_Final].Get());
+
+
+            // Kick off acceleration structure construction.
+            DIRECTX.SubmitCommandList(DrawContext_Final);
+
+            // Wait for GPU to finish as the locally created temporary GPU resources will get released once we go out of scope.
+            DIRECTX.WaitForGpu();
+            scratchResource->Release();
+        }
     }
 
     void InitBottomLevelAccelerationObject()
@@ -2203,7 +2395,6 @@ struct VertexBuffer
         scratchResource->Release();
     }
 
-
 	void InitObj(const std::string& filename)
 	{
 		std::vector<UINT> indices;
@@ -2288,6 +2479,7 @@ struct ModelComponent
     XMFLOAT3X4 transform;
     XMFLOAT4 color;
     UINT instanceIndex;
+    UINT vbIndex;
     VertexBuffer* pVertexBuffer;
 
     void SetIdentity()
@@ -2344,6 +2536,7 @@ struct ModelComponent
         GetNormalizedRGB(color);
         instanceIndex = instanceId;
         pVertexBuffer = nullptr;
+        vbIndex = 0;
     }
 
 };
@@ -2414,7 +2607,7 @@ struct Scene
     UINT numInstances;
     Light lights[4];
 
-    VertexBuffer boxVertexBuffer;
+    VertexBuffer globalVertexBuffer;
     VertexBuffer aabbVertexBuffer;
 
     std::vector<Model> models;
@@ -2504,10 +2697,7 @@ struct Scene
                 //if (index == 0)
                 //    instanceDescsArray[index].InstanceMask = 0;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
-                if (boxModels[i].components[j].pVertexBuffer == nullptr)
-                    instanceDescsArray[index].AccelerationStructure = boxVertexBuffer.m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
-                else
-                    instanceDescsArray[index].AccelerationStructure = boxModels[i].components[j].pVertexBuffer->m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+                instanceDescsArray[index].AccelerationStructure = globalVertexBuffer.m_globalBottomLevelAccelerationStructures[boxModels[i].components[j].vbIndex]->GetGPUVirtualAddress();
                 instanceData[index].textureId = boxModels[i].material.TexIndex;
                 if (x >= z && y >= z)
                 {
@@ -2642,7 +2832,7 @@ struct Scene
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetDescriptorHeaps(1, &DIRECTX.CbvSrvHeap);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputViewSlot, DIRECTX.m_raytracingOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::OutputDepthSlot, DIRECTX.m_raytracingDepthOutputResourceUAVGpuDescriptors[DIRECTX.ActiveContext]);
-        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, boxVertexBuffer.indexBuffer.gpuDescriptorHandle);
+        currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::VertexBufferSlot, globalVertexBuffer.indexBuffer.gpuDescriptorHandle);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootDescriptorTable(DirectX12::GlobalRootSignatureParams::TextureSlot, DIRECTX.texArrayGpuHandle);
         currFrameRes.CommandLists[DIRECTX.ActiveContext]->SetComputeRootShaderResourceView(DirectX12::GlobalRootSignatureParams::AccelerationStructureSlot, m_topLevelAccelerationStructure->GetGPUVirtualAddress());
        DispatchRays(currFrameRes.m_dxrCommandList[DIRECTX.ActiveContext].Get(), DIRECTX.m_dxrStateObject.Get(), &dispatchDesc);
@@ -2706,8 +2896,8 @@ struct Scene
 
         models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
 
-        boxVertexBuffer.InitBox();
-        boxVertexBuffer.InitBottomLevelAccelerationObject();
+        globalVertexBuffer.InitBox();
+        globalVertexBuffer.InitBottomLevelAccelerationObject();
         aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
 
 
@@ -2759,8 +2949,7 @@ struct Scene
         numInstances(0)
     {
         CreateConstantBuffers();
-        boxVertexBuffer.InitBox();
-        boxVertexBuffer.InitBottomLevelAccelerationObject();
+        globalVertexBuffer.AddBoxToGlobal();
     }
     void Release()
     {
@@ -2785,18 +2974,28 @@ struct SceneModel : Scene
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
-        //transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
-        //models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
+        
+        
 
-        model.InitObj("monkey.obj");
-        model.InitBottomLevelAccelerationObject();
-        ModelComponent monkeyComponent;
-        monkeyComponent.instanceIndex = numInstances++;
-        monkeyComponent.pVertexBuffer = &model;
-        transforms.clear();
-        transforms.push_back(monkeyComponent);
+        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
         models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
+        //model.InitObj("monkey.obj");
+        //model.InitBottomLevelAccelerationObject();
+        //ModelComponent monkeyComponent;
+        //monkeyComponent.instanceIndex = numInstances++;
+        //monkeyComponent.pVertexBuffer = &model;
+        //transforms.clear();
+        //transforms.push_back(monkeyComponent);
+        //models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
+
+        //VertexBuffer testBox;
+        //testBox.InitBox();
+        //testBox.InitBottomLevelAccelerationObject();
+
+        globalVertexBuffer.InitGlobalVertexBuffers();
+        //globalVertexBuffer.InitBottomLevelAccelerationObject();
+        globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
         BuildAccelerationStructures(models);
     }
 };
