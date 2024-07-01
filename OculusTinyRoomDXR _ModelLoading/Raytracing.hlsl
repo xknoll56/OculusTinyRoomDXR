@@ -192,14 +192,23 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     else
     {
         float3 barycentrics = float3(1 - attr.barycentrics.x - attr.barycentrics.y, attr.barycentrics.x, attr.barycentrics.y);
-    
+
+        uint startIndexOffset = 0;
+        uint startVertexOffset = 0;
+        if (InstanceID() == 1)
+        {
+            startIndexOffset = 36;
+            startVertexOffset = 24;
+        }
+
         uint indicesPerTriangle = 3;
-        uint baseIndex = PrimitiveIndex() * indicesPerTriangle;
+        uint primitiveIndex = PrimitiveIndex();
+        uint baseIndex = startIndexOffset + primitiveIndex * indicesPerTriangle;
 
         uint3 indices;
-        indices.x = Indices[baseIndex];
-        indices.y = Indices[baseIndex + 1];
-        indices.z = Indices[baseIndex + 2];
+        indices.x = Indices[baseIndex] + startVertexOffset;
+        indices.y = Indices[baseIndex + 1] + startVertexOffset;
+        indices.z = Indices[baseIndex + 2] + startVertexOffset;
 
 
         float3 vertexNormals[3] =

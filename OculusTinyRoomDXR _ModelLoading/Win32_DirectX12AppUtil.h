@@ -2136,7 +2136,7 @@ struct VertexBuffer
         }
 
         std::pair<UINT, UINT> vbStartIndices;
-        ibStartIndices.first = globalVertices.size();
+        vbStartIndices.first = globalVertices.size();
         for (int i = 0; i < 24; i++)
         {
             globalVertices.push_back(vertices[i]);
@@ -2166,14 +2166,17 @@ struct VertexBuffer
 
     void InitGlobalBottomLevelAccelerationObject()
     {
-        // Reset the command list for the acceleration structure construction.
-        DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
+
 
         m_globalBottomLevelAccelerationStructures.reserve(globalStartIBIndices.size());
         ID3D12Resource* dummyResource;
 
         for (int i = 0; i < globalStartIBIndices.size(); i++)
         {
+            // Reset the command list for the acceleration structure construction.
+            DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
+
+
             m_globalBottomLevelAccelerationStructures.push_back(dummyResource);
 
             D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
@@ -2395,7 +2398,7 @@ struct VertexBuffer
         scratchResource->Release();
     }
 
-	void InitObj(const std::string& filename)
+	void AddGlobalObj(const std::string& filename)
 	{
 		std::vector<UINT> indices;
 		tinyobj::ObjReaderConfig reader_config;
@@ -2463,14 +2466,27 @@ struct VertexBuffer
 			}
 		}
 
-		DIRECTX.AllocateUploadBuffer(DIRECTX.Device, vertices.data(), sizeof(Vertex) * vertices.size(), &vertexBuffer.resource);
-		DIRECTX.AllocateUploadBuffer(DIRECTX.Device, indices.data(), sizeof(UINT) * indices.size(), &indexBuffer.resource);
+        std::pair<UINT, UINT> ibStartIndices;
+        ibStartIndices.first = globalIndices.size();
+        for (int i = 0; i < indices.size(); i++)
+        {
+            globalIndices.push_back(indices[i]);
+        }
 
-		// Vertex buffer is passed to the shader along with index buffer as a descriptor table.
-		// Vertex buffer descriptor must follow index buffer descriptor in the descriptor heap.
-		UINT descriptorIndexIB = DIRECTX.CreateBufferSRV(&indexBuffer, sizeof(indices) / 4, 0);
-		UINT descriptorIndexVB = DIRECTX.CreateBufferSRV(&vertexBuffer, vertices.size(), sizeof(vertices[0]));
-		ThrowIfFalse(descriptorIndexVB == descriptorIndexIB + 1);
+        std::pair<UINT, UINT> vbStartIndices;
+        vbStartIndices.first = globalVertices.size();
+        for (int i = 0; i < vertices.size(); i++)
+        {
+            globalVertices.push_back(vertices[i]);
+        }
+
+        std::pair<UINT, UINT> startIndices;
+        startIndices.first = globalIndices.size();
+        startIndices.second = globalVertices.size();
+        ibStartIndices.second = globalIndices.size() - ibStartIndices.first;
+        vbStartIndices.second = globalVertices.size() - vbStartIndices.first;
+        globalStartIBIndices.push_back(ibStartIndices);
+        globalStartVBIndices.push_back(vbStartIndices);
 	}
 };
 //-----------------------------------------------------
@@ -2977,24 +2993,19 @@ struct SceneModel : Scene
         
         
 
-        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
+        transforms.push_back(ModelComponent(3.5f, -0.5f, 0.5f, 2.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
         models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
-        //model.InitObj("monkey.obj");
-        //model.InitBottomLevelAccelerationObject();
-        //ModelComponent monkeyComponent;
-        //monkeyComponent.instanceIndex = numInstances++;
-        //monkeyComponent.pVertexBuffer = &model;
-        //transforms.clear();
-        //transforms.push_back(monkeyComponent);
-        //models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
+        globalVertexBuffer.AddGlobalObj("monkey.obj");
+        ModelComponent monkeyComponent;
+        monkeyComponent.instanceIndex = numInstances++;
+        monkeyComponent.vbIndex = 1;
+        transforms.clear();
+        transforms.push_back(monkeyComponent);
+        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
-        //VertexBuffer testBox;
-        //testBox.InitBox();
-        //testBox.InitBottomLevelAccelerationObject();
 
         globalVertexBuffer.InitGlobalVertexBuffers();
-        //globalVertexBuffer.InitBottomLevelAccelerationObject();
         globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
         BuildAccelerationStructures(models);
     }
