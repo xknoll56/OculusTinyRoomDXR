@@ -1055,7 +1055,6 @@ struct DirectX12
         CreateRaytracingInterfaces();
         CreateRootSignatures();
         CreateRaytracingPipelineStateObject();
-        CreateTextureArray(256, 256, 10, 1);
         BuildShaderTables();
         CreateRaytracingOutputResource(eyeWidth, eyeHeight);
 
@@ -1720,6 +1719,8 @@ struct Texture
 
     enum AutoFill { AUTO_WHITE = 1, AUTO_WALL, AUTO_FLOOR, AUTO_CEILING, AUTO_GRID, AUTO_GRADE_256 };
     const static UINT numTextures = 6;
+    static UINT maxWidth;
+    static UINT maxHeight;
 
 private:
     Texture()
@@ -1729,6 +1730,8 @@ private:
 public:
     void Init(int sizeW, int sizeH, bool rendertarget, UINT mipLevels, int sampleCount)
     {
+        maxWidth = sizeW > maxWidth ? sizeW : maxWidth;
+        maxHeight = sizeH > maxHeight ? sizeH : maxHeight;
         SizeW = sizeW;
         SizeH = sizeH;
         MipLevels = mipLevels;
@@ -1782,7 +1785,7 @@ public:
 
     Texture(bool rendertarget, int sizeW, int sizeH, AutoFill autoFillData = (AutoFill)0, int sampleCount = 1)
     {
-        Init(sizeW, sizeH, rendertarget, autoFillData ? 8 : 1, sampleCount);
+        Init(sizeW, sizeH, rendertarget, 1, sampleCount);
         if (!rendertarget && autoFillData)
             AutoFillTexture(autoFillData);
     }
@@ -1940,6 +1943,9 @@ public:
         //delete(texture);
     }
 };
+
+UINT Texture::maxHeight = 0;
+UINT Texture::maxWidth = 0;
 
 //-----------------------------------------------------
 struct Material
@@ -2654,6 +2660,10 @@ struct Scene
     // Acceleration structure
     ComPtr<ID3D12Resource> m_topLevelAccelerationStructure;
 
+    // Textures
+    std::vector<Texture*> textures;
+
+
 
     void UpdateInstancePosition(UINT instanceIndex, XMFLOAT3 position)
     {
@@ -2973,10 +2983,28 @@ struct Scene
         ThrowIfFailed(m_perFrameConstants[1]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[1])));
     }
 
+    void CreateDefaultTextures()
+    {
+        for (int i = 0; i < Texture::numTextures; i++)
+        {
+            textures.push_back(new Texture(false, 256, 256, (Texture::AutoFill)(i + 1)));
+        }
+    }
+
+    void InitTexturesToTexArray()
+    {
+        DIRECTX.CreateTextureArray(Texture::maxWidth, Texture::maxHeight, textures.size());
+        for (int i = 0; i < textures.size(); i++)
+        {
+            DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], i, textures[i]->TextureRes);
+        }
+    }
+
     Scene() : numInstances(0) {}
     Scene(bool includeIntensiveGPUobject) :
         numInstances(0)
     {
+        CreateDefaultTextures();
         CreateConstantBuffers();
         std::pair<UINT, UINT> indexData = globalVertexBuffer.AddBoxToGlobal();
         vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].vertexOffset = indexData.first;
@@ -3002,7 +3030,7 @@ struct SceneModel : Scene
     void Init(bool includeIntensiveGPUobject) override
     {
 
-        std::pair<UINT, UINT> indexData = globalVertexBuffer.AddGlobalObj("monkey.obj");
+        std::pair<UINT, UINT> indexData = globalVertexBuffer.AddGlobalObj("Charizard/charizard.obj");
         vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].vertexOffset = indexData.first;
         vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].indexOffset = indexData.second;
         

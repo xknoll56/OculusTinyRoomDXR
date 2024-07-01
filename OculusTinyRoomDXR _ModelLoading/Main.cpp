@@ -228,7 +228,6 @@ struct OculusEyeTexture
     }
 };
 
-Texture** pTextures;
 // return true to retry later (e.g. after display lost)
 static bool MainLoop(bool retryCreate)
 {
@@ -313,15 +312,8 @@ static bool MainLoop(bool retryCreate)
     }
 
     // Create the room model
-    pTextures = new Texture * [Texture::numTextures];
-    for (int i = 0; i < Texture::numTextures; i++)
-    {
-        pTextures[i] = new Texture(false, 256, 256, (Texture::AutoFill)(i+1));
-    }
     modelScene = new SceneModel(false);
     modelScene->Init(false);
-    //textureTest = new Texture(false, 256, 256, Texture::AUTO_FLOOR);
-    //textureTest1 = new Texture(false, 256, 256, Texture::AUTO_WALL);
 
     
     // Create camera
@@ -330,16 +322,7 @@ static bool MainLoop(bool retryCreate)
 
     DIRECTX.InitFrame(drawMirror);
 
-    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 0, textureTest->TextureRes);
-    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 1, textureTest1->TextureRes);
-    
-
-
-
-    for (int i = 0; i < Texture::numTextures; i++)
-    {
-        DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], i, pTextures[i]->TextureRes);
-    }
+    modelScene->InitTexturesToTexArray();
 
 
     // Main loop
