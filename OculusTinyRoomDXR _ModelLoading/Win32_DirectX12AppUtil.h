@@ -2182,6 +2182,34 @@ struct VertexBuffer
         return startIndices;
     }
 
+    std::pair<UINT, UINT> AddVerticeAndIndicesToGlobal(std::vector<Vertex> vertices, std::vector<UINT> indices)
+    {
+        std::pair<UINT, UINT> startIndices;
+        startIndices.second = globalIndices.size();
+        startIndices.first = globalVertices.size();
+
+        std::pair<UINT, UINT> ibStartIndices;
+        ibStartIndices.first = globalIndices.size();
+        for (int i = 0; i < indices.size(); i++)
+        {
+            globalIndices.push_back(indices[i]);
+        }
+
+        std::pair<UINT, UINT> vbStartIndices;
+        vbStartIndices.first = globalVertices.size();
+        for (int i = 0; i < vertices.size(); i++)
+        {
+            globalVertices.push_back(vertices[i]);
+        }
+
+        ibStartIndices.second = globalIndices.size() - ibStartIndices.first;
+        vbStartIndices.second = globalVertices.size() - vbStartIndices.first;
+        globalStartIBIndices.push_back(ibStartIndices);
+        globalStartVBIndices.push_back(vbStartIndices);
+        numVertexBuffers++;
+        return startIndices;
+    }
+
     void InitGlobalVertexBuffers()
     {
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, globalVertices.data(), globalVertices.size()*sizeof(Vertex), &vertexBuffer.resource);
@@ -2530,6 +2558,7 @@ struct ModelComponent
     UINT instanceIndex;
     UINT vbIndex;
     VertexBuffer* pVertexBuffer;
+    static UINT numInstances;
 
     void SetIdentity()
     {
@@ -2550,6 +2579,7 @@ struct ModelComponent
         SetIdentity();
         GetNormalizedRGB(0xffffffff);
         pVertexBuffer = nullptr;
+        instanceIndex = numInstances++;
     }
 
     void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
@@ -2578,39 +2608,123 @@ struct ModelComponent
         this->color.w = 1.0f;
     }
 
-    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color, UINT instanceId)
+    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color)
     {
         SetIdentity();
         SetAsBox(x1, y1, z1, x2, y2, z2);
         GetNormalizedRGB(color);
-        instanceIndex = instanceId;
         pVertexBuffer = nullptr;
         vbIndex = 0;
+        instanceIndex = numInstances++;
     }
 
 };
+
+UINT ModelComponent::numInstances = 0;
 
 //-----------------------------------------------------
 struct Model
 {
     std::vector<ModelComponent> components;
     Material material;
-    
+    XMMATRIX transform;
 
+    Model() 
+    {
+        transform = XMMatrixIdentity();
+    }
+    
     Model(std::vector<ModelComponent> components, Material material)
     {
         this->components = components;
         this->material = material;
+        transform = XMMatrixIdentity();
     }
 
-    void Translate(XMFLOAT3 translation)
+    //void Translate(XMFLOAT3 translation)
+    //{
+    //    for (int i = 0; i < components.size(); i++)
+    //    {
+    //        components[i].transform.m[0][3] += translation.x;
+    //        components[i].transform.m[1][3] += translation.y;
+    //        components[i].transform.m[2][3] += translation.z;
+    //    }
+    //}
+
+    static Model InitFromObj(std::string filePath, VertexBuffer& vertexBuffer)
     {
-        for (int i = 0; i < components.size(); i++)
-        {
-            components[i].transform.m[0][3] += translation.x;
-            components[i].transform.m[1][3] += translation.y;
-            components[i].transform.m[2][3] += translation.z;
+        Model model;
+        
+        tinyobj::ObjReaderConfig reader_config;
+        reader_config.mtl_search_path = ""; // Path to material files
+
+        tinyobj::ObjReader reader;
+
+        if (!reader.ParseFromFile(filePath, reader_config)) {
+            if (!reader.Error().empty()) {
+            }
+            exit(1);
         }
+
+        if (!reader.Warning().empty()) {
+            //std::cout << "TinyObjReader: " << reader.Warning();
+        }
+
+        auto& attrib = reader.GetAttrib();
+        auto& shapes = reader.GetShapes();
+        auto& materials = reader.GetMaterials();
+
+        
+
+        // Create a hash function for the Vertex
+        struct VertexHash {
+            std::size_t operator()(const Vertex& vertex) const {
+                return ((std::hash<float>()(vertex.position.x) ^ (std::hash<float>()(vertex.position.y) << 1)) >> 1) ^
+                    ((std::hash<float>()(vertex.position.z) ^ (std::hash<float>()(vertex.normal.x) << 1)) >> 1) ^
+                    ((std::hash<float>()(vertex.normal.y) ^ (std::hash<float>()(vertex.normal.z) << 1)) >> 1) ^
+                    ((std::hash<float>()(vertex.uv.x) ^ (std::hash<float>()(vertex.uv.y) << 1)) >> 1);
+            }
+        };
+
+        std::unordered_map<Vertex, unsigned int, VertexHash> uniqueVertices;
+
+        // Loop over shapes
+        for (const auto& shape : shapes) {
+            std::vector<UINT> indices;
+            std::vector<Vertex> vertices;
+            // Loop over faces (polygons)
+            for (const auto& index : shape.mesh.indices) {
+                Vertex vertex = { 0,0,0,0,0,0,0,0 };
+
+                vertex.position.x = attrib.vertices[3 * index.vertex_index + 0];
+                vertex.position.y = attrib.vertices[3 * index.vertex_index + 1];
+                vertex.position.z = attrib.vertices[3 * index.vertex_index + 2];
+
+                if (index.normal_index >= 0) {
+                    vertex.normal.x = attrib.normals[3 * index.normal_index + 0];
+                    vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
+                    vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
+                }
+
+                if (index.texcoord_index >= 0) {
+                    vertex.uv.x = attrib.texcoords[2 * index.texcoord_index + 0];
+                    vertex.uv.y = attrib.texcoords[2 * index.texcoord_index + 1];
+                }
+
+                // Check if the vertex is unique
+                if (uniqueVertices.count(vertex) == 0) {
+                    uniqueVertices[vertex] = static_cast<unsigned int>(vertices.size());
+                    vertices.push_back(vertex);
+                }
+
+                indices.push_back(uniqueVertices[vertex]);
+            }
+            ModelComponent component;
+            component.vbIndex = vertexBuffer.globalStartVBIndices.size();
+            vertexBuffer.AddVerticeAndIndicesToGlobal(vertices, indices);
+            model.components.push_back(component);
+        }
+        return model;
     }
 
     
@@ -2906,59 +3020,59 @@ struct Scene
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
-        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
+        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
         models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
         
         transforms.clear();
-        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000, numInstances++));
-        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000, numInstances++));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
         models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
 
 
         transforms.clear();
-        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080, numInstances++));
-        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080, numInstances++));
-        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080, numInstances++));
+        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
         models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1)));
 
         transforms.clear();
-        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080, numInstances++));
-        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080, numInstances++));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
+        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
         models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
 
         transforms.clear();
-        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080, numInstances++));
+        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
         models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
 
         transforms.clear();
         //TriangleSet furniture;
-        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838, numInstances++));    // Right side shelf// Verticals
-        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838, numInstances++));   // Right side shelf
-        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838, numInstances++)); // Right side shelf// Horizontals
-        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838, numInstances++)); // Right side shelf
-        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838, numInstances++));   // Right railing
-        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838, numInstances++));   // Left railing
+        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838));    // Right side shelf// Verticals
+        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838));   // Right side shelf
+        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838)); // Right side shelf// Horizontals
+        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838)); // Right side shelf
+        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838));   // Right railing
+        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838));   // Left railing
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050, numInstances++)); // Left Bars
+            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050)); // Left Bars
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050, numInstances++)); // Right Bars
-        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000, numInstances++));  // Table
-        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000, numInstances++)); // Table Leg
-        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000, numInstances++)); // Table Leg
-        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000, numInstances++));  // Table Leg
-        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000, numInstances++));  // Table Leg
-        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050, numInstances++));  // Chair Set
-        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050, numInstances++)); // Chair Leg 1
-        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050, numInstances++)); // Chair Leg 2
-        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050, numInstances++)); // Chair Leg 2
-        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050, numInstances++)); // Chair Leg 2
-        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050, numInstances++)); // Chair Back high bar
+            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050)); // Right Bars
+        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000));  // Table
+        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000)); // Table Leg
+        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000)); // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000));  // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000));  // Table Leg
+        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050));  // Chair Set
+        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050)); // Chair Leg 1
+        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050)); // Chair Back high bar
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
-            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040, numInstances++)); // Posts
+            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
 
         models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
-
+        numInstances = ModelComponent::numInstances;
         globalVertexBuffer.InitBox();
         globalVertexBuffer.InitBottomLevelAccelerationObject();
         aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
@@ -3031,6 +3145,18 @@ struct Scene
         }
     }
 
+    Model AddObjModelToScene(std::string fileName)
+    {
+        UINT numModels = globalVertexBuffer.numVertexBuffers;
+        Model model = Model::InitFromObj(fileName, globalVertexBuffer);
+        for (int i = numModels; i < globalVertexBuffer.numVertexBuffers; i++)
+        {
+            vertexBufferDatas[i].vertexOffset = globalVertexBuffer.globalStartVBIndices[i].first;
+            vertexBufferDatas[i].indexOffset = globalVertexBuffer.globalStartIBIndices[i].first;
+        }
+        return model;
+    }
+
     Scene() : numInstances(0) {}
     Scene(bool includeIntensiveGPUobject) :
         numInstances(0)
@@ -3062,25 +3188,18 @@ struct SceneModel : Scene
     {
 
         PushBackTexture(new Texture("Charizard/images/pm0006_00_BodyA1.png"));
-
-        std::pair<UINT, UINT> indexData = globalVertexBuffer.AddGlobalObj("Charizard/charizard.obj");
-        vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].vertexOffset = indexData.first;
-        vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].indexOffset = indexData.second;
         
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
-        transforms.push_back(ModelComponent(3.5f, -0.5f, 0.5f, 2.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
+        transforms.push_back(ModelComponent(3.5f, -0.5f, 0.5f, 2.5f, 0.5f, -0.5f, 0xff404040));
         models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR-1)));
 
-        ModelComponent monkeyComponent;
-        monkeyComponent.instanceIndex = numInstances++;
-        monkeyComponent.vbIndex = 1;
-        transforms.clear();
-        transforms.push_back(monkeyComponent);
-        models.push_back(Model(transforms, Material(textures.size() - 1)));
+        Model model = AddObjModelToScene("Charizard/charizard.obj");
+        model.material = Material(textures.size() - 1);
+        models.push_back(model);
 
-
+        numInstances = ModelComponent::numInstances;
         globalVertexBuffer.InitGlobalVertexBuffers();
         globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
         BuildAccelerationStructures(models);

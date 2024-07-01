@@ -9,7 +9,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.500000
 d 1.000000
 illum 3
-map_Kd C:/Users/xavie/Downloads/3DS - Pokemon X Y - 006 Charizard/Pokemon XY/Charizard/images/pm0006_00_Eye1.png
+map_Kd Charizard/images/pm0006_00_Eye1.png
 
 newmtl Material__13
 Ns 250.000000
@@ -19,7 +19,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.500000
 d 1.000000
 illum 3
-map_Kd C:/Users/xavie/Downloads/3DS - Pokemon X Y - 006 Charizard/Pokemon XY/Charizard/images/pm0006_00_BodyA1.png
+map_Kd Charizard/images/pm0006_00_BodyA1.png
 
 newmtl Material__14
 Ns 250.000000
@@ -29,7 +29,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.500000
 d 1.000000
 illum 3
-map_Kd C:/Users/xavie/Downloads/3DS - Pokemon X Y - 006 Charizard/Pokemon XY/Charizard/images/pm0006_00_BodyB1.png
+map_Kd Charizard/images/pm0006_00_BodyB1.png
 
 newmtl Material__15
 Ns 250.000000
@@ -39,7 +39,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.500000
 d 1.000000
 illum 3
-map_Kd C:/Users/xavie/Downloads/3DS - Pokemon X Y - 006 Charizard/Pokemon XY/Charizard/images/pm0006_00_FireCoreA1.png
+map_Kd Charizard/images/pm0006_00_FireCoreA1.png
 
 newmtl Material__16
 Ns 250.000000
@@ -49,4 +49,4 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.500000
 d 1.000000
 illum 3
-map_Kd C:/Users/xavie/Downloads/3DS - Pokemon X Y - 006 Charizard/Pokemon XY/Charizard/images/pm0006_00_FireStenA1.png
+map_Kd Charizard/images/pm0006_00_FireStenA1.png
