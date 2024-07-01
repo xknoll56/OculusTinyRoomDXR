@@ -51,7 +51,7 @@ struct Light
 #define MAX_INSTANCES 400
 #define MAX_MODELS 100
 #define MAX_LIGHTS 4
-#define NUM_TEXTURES 6
+#define NUM_TEXTURES 40
 
 struct SceneConstantBuffer
 {
@@ -241,8 +241,8 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
    
     
     // Sample the texture
-        float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, g_sceneCB.instanceData[instanceId].textureId, 0));
-    //float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[0].width, texcoord.y * g_sceneCB.texture[0].height, 2, 0));
+        uint textureDataId = g_sceneCB.instanceData[instanceId].textureId;
+        float4 sampledColor = g_texture.Load(int4(texcoord.x * g_sceneCB.texture[textureDataId].width, texcoord.y * g_sceneCB.texture[textureDataId].height, textureDataId, 0));
     
         float4 instanceColor = saturate(float4(g_sceneCB.instanceData[instanceId].color, 1.0f) * 2.0f);
         float4 color = sampledColor * instanceColor;

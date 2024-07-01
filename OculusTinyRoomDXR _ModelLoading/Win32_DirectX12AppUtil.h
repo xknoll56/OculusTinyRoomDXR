@@ -45,6 +45,8 @@ using Microsoft::WRL::ComPtr;
 #include "CompiledShaders\Raytracing.hlsl.h"
 #define  TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3d12.lib")
@@ -1797,6 +1799,30 @@ public:
         DIRECTX.RtvHandleProvider.FreeCpuHandle(RtvHandle);
     }
 
+    Texture(const char* filePath)
+    {
+        int channels;
+        int width, height;
+        uint8_t* data = stbi_load(filePath, &width, &height, &channels, 4);
+        ThrowIfFalse(data != nullptr);
+        uint32_t* pixels = (uint32_t*)malloc(sizeof(uint32_t) * width * height);
+        ThrowIfFalse(pixels != nullptr);
+
+        for (int i = 0; i < width * height; ++i)
+        {
+            uint8_t r = data[i * 4];
+            uint8_t g = data[i * 4 + 1];
+            uint8_t b = data[i * 4 + 2];
+            uint8_t a = data[i * 4 + 3];
+            pixels[i] = (a << 24) | (b << 16) | (g << 8) | r;
+        }
+
+        stbi_image_free(data);
+
+        Init(width, height, false, 1, 1);
+        FillTexture(pixels);
+    }
+
     void FillTexture(uint32_t* pix)
     {
         HRESULT hr;
@@ -1936,12 +1962,6 @@ public:
         free(pix);
     }
 
-    static void CreateAndCopyTextureSubresource(AutoFill autoFill, UINT width, UINT height, UINT destSubresourceIndex)
-    {
-        Texture* texture = new Texture(false, 256, 256, autoFill);
-        DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final], destSubresourceIndex, texture->TextureRes);
-        //delete(texture);
-    }
 };
 
 UINT Texture::maxHeight = 0;
@@ -2598,6 +2618,7 @@ struct Model
 
 #define MAX_INSTANCES 400
 #define MAX_VBS 100
+#define MAX_TEXTURES 40
 //-------------------------------------------------------------------------
 struct Scene
 {
@@ -2605,6 +2626,7 @@ struct Scene
     {
         UINT width;
         UINT height;
+        XMFLOAT2 padding;
     };
 
     struct InstanceData
@@ -2636,7 +2658,7 @@ struct Scene
         InstanceData instanceData[MAX_INSTANCES];
         Light lights[4];
         VertexBufferData vertexBufferDatas[MAX_VBS];
-        TextureData textureResources[Texture::numTextures];
+        TextureData textureResources[MAX_TEXTURES];
     };
 
     SceneConstantBuffer* m_mappedConstantData[2];
@@ -2646,6 +2668,7 @@ struct Scene
     UINT numInstances;
     Light lights[4];
     VertexBufferData vertexBufferDatas[MAX_VBS];
+    TextureData textureResources[MAX_TEXTURES];
 
     VertexBuffer globalVertexBuffer;
     VertexBuffer aabbVertexBuffer;
@@ -2859,6 +2882,7 @@ struct Scene
         memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].instanceData[0], &instanceData[0], numInstances * sizeof(InstanceData));
         memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].lights[0], &lights[0], 4 * sizeof(Light));
         memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].vertexBufferDatas[0], &vertexBufferDatas[0], MAX_VBS * sizeof(VertexBufferData));
+        memcpy(&m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex].textureResources[0], &textureResources[0], MAX_TEXTURES * sizeof(TextureData));
 
         // Copy the updated scene constant buffer to GPU.
         memcpy(&m_mappedConstantData[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], &m_sceneCB[DIRECTX.ActiveContext][DIRECTX.SwapChainFrameIndex], 
@@ -2983,11 +3007,18 @@ struct Scene
         ThrowIfFailed(m_perFrameConstants[1]->Map(0, nullptr, reinterpret_cast<void**>(&m_mappedConstantData[1])));
     }
 
+    void PushBackTexture(Texture* pTexture)
+    {
+        textureResources[textures.size()].width = pTexture->SizeW;
+        textureResources[textures.size()].height = pTexture->SizeH;
+        textures.push_back(pTexture);
+    }
+
     void CreateDefaultTextures()
     {
         for (int i = 0; i < Texture::numTextures; i++)
         {
-            textures.push_back(new Texture(false, 256, 256, (Texture::AutoFill)(i + 1)));
+            PushBackTexture(new Texture(false, 256, 256, (Texture::AutoFill)(i + 1)));
         }
     }
 
@@ -3030,6 +3061,8 @@ struct SceneModel : Scene
     void Init(bool includeIntensiveGPUobject) override
     {
 
+        PushBackTexture(new Texture("Charizard/images/pm0006_00_BodyA1.png"));
+
         std::pair<UINT, UINT> indexData = globalVertexBuffer.AddGlobalObj("Charizard/charizard.obj");
         vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].vertexOffset = indexData.first;
         vertexBufferDatas[globalVertexBuffer.numVertexBuffers - 1].indexOffset = indexData.second;
@@ -3038,14 +3071,14 @@ struct SceneModel : Scene
         numInstances = 0;
 
         transforms.push_back(ModelComponent(3.5f, -0.5f, 0.5f, 2.5f, 0.5f, -0.5f, 0xff404040, numInstances++));
-        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR-1)));
 
         ModelComponent monkeyComponent;
         monkeyComponent.instanceIndex = numInstances++;
         monkeyComponent.vbIndex = 1;
         transforms.clear();
         transforms.push_back(monkeyComponent);
-        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
+        models.push_back(Model(transforms, Material(textures.size() - 1)));
 
 
         globalVertexBuffer.InitGlobalVertexBuffers();
