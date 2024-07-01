@@ -2553,7 +2553,7 @@ struct VertexBuffer
 //-----------------------------------------------------
 struct ModelComponent
 {
-    XMFLOAT3X4 transform;
+    XMMATRIX transform;
     XMFLOAT4 color;
     UINT instanceIndex;
     UINT vbIndex;
@@ -2563,16 +2563,7 @@ struct ModelComponent
 
     void SetIdentity()
     {
-        for (int i = 0; i < 3; i++)
-        {
-            for (int j = 0; j < 4; j++)
-            {
-                if (i == j)
-                    transform.m[i][j] = 1;
-                else
-                    transform.m[i][j] = 0;
-            }
-        }
+        transform = XMMatrixIdentity();
     }
 
     ModelComponent()
@@ -2586,14 +2577,14 @@ struct ModelComponent
     void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
     {
         // Set position
-        transform.m[0][3] = (x1 + x2) * 0.5f;
-        transform.m[1][3] = (y1 + y2) * 0.5f;
-        transform.m[2][3] = (z1 + z2) * 0.5f;
+        transform.r[0].m128_f32[3] = (x1 + x2) * 0.5f;
+        transform.r[1].m128_f32[3] = (y1 + y2) * 0.5f;
+        transform.r[2].m128_f32[3] = (z1 + z2) * 0.5f;
 
         // Set scale
-        transform.m[0][0] = fabsf(x2 - x1);
-        transform.m[1][1] = fabsf(y2 - y1);
-        transform.m[2][2] = fabsf(z2 - z1);
+        transform.r[0].m128_f32[0] = fabsf(x2 - x1);
+        transform.r[1].m128_f32[1] = fabsf(y2 - y1);
+        transform.r[2].m128_f32[2] = fabsf(z2 - z1);
     }
 
     void GetNormalizedRGB(uint32_t color) {
@@ -2638,7 +2629,7 @@ struct Model
     {
         this->components = components;
         for (int i = 0; i < components.size(); i++)
-            components[i].material = material;
+            this->components[i].material = material;
         transform = XMMatrixIdentity();
     }
 
@@ -2911,14 +2902,14 @@ struct Scene
             for (int j = 0; j < models[i].components.size(); j++)
             {
                 instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
-                float x = models[i].components[j].transform.m[0][0];
-                float y = models[i].components[j].transform.m[1][1];
-                float z = models[i].components[j].transform.m[2][2];
+                float x = models[i].components[j].transform.r[0].m128_f32[0];
+                float y = models[i].components[j].transform.r[1].m128_f32[1];
+                float z = models[i].components[j].transform.r[2].m128_f32[2];
                 for (int x = 0; x < 3; x++)
                 {
                     for (int y = 0; y < 4; y++)
                     {
-                        instanceDescsArray[index].Transform[x][y] = models[i].components[j].transform.m[x][y];
+                        instanceDescsArray[index].Transform[x][y] = models[i].components[j].transform.r[x].m128_f32[y];
                     }
                 }
                 instanceDescsArray[index].InstanceMask = 1;
