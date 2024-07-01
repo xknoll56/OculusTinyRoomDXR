@@ -2558,6 +2558,7 @@ struct ModelComponent
     UINT instanceIndex;
     UINT vbIndex;
     VertexBuffer* pVertexBuffer;
+    Material material;
     static UINT numInstances;
 
     void SetIdentity()
@@ -2626,7 +2627,6 @@ UINT ModelComponent::numInstances = 0;
 struct Model
 {
     std::vector<ModelComponent> components;
-    Material material;
     XMMATRIX transform;
 
     Model() 
@@ -2637,7 +2637,14 @@ struct Model
     Model(std::vector<ModelComponent> components, Material material)
     {
         this->components = components;
-        this->material = material;
+        for (int i = 0; i < components.size(); i++)
+            components[i].material = material;
+        transform = XMMatrixIdentity();
+    }
+
+    Model(std::vector<ModelComponent> components)
+    {
+        this->components = components;
         transform = XMMatrixIdentity();
     }
 
@@ -2651,7 +2658,7 @@ struct Model
     //    }
     //}
 
-    static Model InitFromObj(std::string filePath, VertexBuffer& vertexBuffer)
+    static std::pair<Model, std::vector<Texture*>> InitFromObj(std::string filePath, VertexBuffer& vertexBuffer, UINT textureOffset)
     {
         Model model;
         
@@ -2672,8 +2679,13 @@ struct Model
 
         auto& attrib = reader.GetAttrib();
         auto& shapes = reader.GetShapes();
-        auto& materials = reader.GetMaterials();
+        std::vector<tinyobj::material_t> materials = reader.GetMaterials();
 
+        std::vector<Texture*> materialTextures;
+        for (int i = 0; i < materials.size(); i++)
+        {
+            materialTextures.push_back(new Texture(materials[i].diffuse_texname.c_str()));
+        }
         
 
         // Create a hash function for the Vertex
@@ -2692,39 +2704,73 @@ struct Model
         for (const auto& shape : shapes) {
             std::vector<UINT> indices;
             std::vector<Vertex> vertices;
-            // Loop over faces (polygons)
-            for (const auto& index : shape.mesh.indices) {
-                Vertex vertex = { 0,0,0,0,0,0,0,0 };
+            int currentMaterialId = -1;
 
-                vertex.position.x = attrib.vertices[3 * index.vertex_index + 0];
-                vertex.position.y = attrib.vertices[3 * index.vertex_index + 1];
-                vertex.position.z = attrib.vertices[3 * index.vertex_index + 2];
+            size_t index_offset = 0;
+            for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
+                size_t fv = shape.mesh.num_face_vertices[f];
+                int materialId = shape.mesh.material_ids[f];
 
-                if (index.normal_index >= 0) {
-                    vertex.normal.x = attrib.normals[3 * index.normal_index + 0];
-                    vertex.normal.y = attrib.normals[3 * index.normal_index + 1];
-                    vertex.normal.z = attrib.normals[3 * index.normal_index + 2];
+                // Check if the material has changed
+                if (materialId != currentMaterialId) {
+                    if (!indices.empty()) {
+                        ModelComponent component;
+                        component.vbIndex = vertexBuffer.globalStartVBIndices.size();
+                        component.material.TexIndex = currentMaterialId + textureOffset;
+                        vertexBuffer.AddVerticeAndIndicesToGlobal(vertices, indices);
+                        model.components.push_back(component);
+
+                        indices.clear();
+                        vertices.clear();
+                        uniqueVertices.clear();
+                    }
+                    currentMaterialId = materialId;
                 }
 
-                if (index.texcoord_index >= 0) {
-                    vertex.uv.x = attrib.texcoords[2 * index.texcoord_index + 0];
-                    vertex.uv.y = attrib.texcoords[2 * index.texcoord_index + 1];
-                }
+                // Loop over vertices in the face
+                for (size_t v = 0; v < fv; v++) {
+                    tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+                    Vertex vertex = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-                // Check if the vertex is unique
-                if (uniqueVertices.count(vertex) == 0) {
-                    uniqueVertices[vertex] = static_cast<unsigned int>(vertices.size());
-                    vertices.push_back(vertex);
-                }
+                    vertex.position.x = attrib.vertices[3 * idx.vertex_index + 0];
+                    vertex.position.y = attrib.vertices[3 * idx.vertex_index + 1];
+                    vertex.position.z = attrib.vertices[3 * idx.vertex_index + 2];
 
-                indices.push_back(uniqueVertices[vertex]);
+                    if (idx.normal_index >= 0) {
+                        vertex.normal.x = attrib.normals[3 * idx.normal_index + 0];
+                        vertex.normal.y = attrib.normals[3 * idx.normal_index + 1];
+                        vertex.normal.z = attrib.normals[3 * idx.normal_index + 2];
+                    }
+
+                    if (idx.texcoord_index >= 0) {
+                        vertex.uv.x = attrib.texcoords[2 * idx.texcoord_index + 0];
+                        vertex.uv.y = attrib.texcoords[2 * idx.texcoord_index + 1];
+                    }
+
+                    // Check if the vertex is unique
+                    if (uniqueVertices.count(vertex) == 0) {
+                        uniqueVertices[vertex] = static_cast<unsigned int>(vertices.size());
+                        vertices.push_back(vertex);
+                    }
+
+                    indices.push_back(uniqueVertices[vertex]);
+                }
+                index_offset += fv;
             }
-            ModelComponent component;
-            component.vbIndex = vertexBuffer.globalStartVBIndices.size();
-            vertexBuffer.AddVerticeAndIndicesToGlobal(vertices, indices);
-            model.components.push_back(component);
+
+            // Add the remaining vertices and indices to the model
+            if (!indices.empty()) {
+                ModelComponent component;
+                component.vbIndex = vertexBuffer.globalStartVBIndices.size();
+                component.material.TexIndex = currentMaterialId + textureOffset;
+                vertexBuffer.AddVerticeAndIndicesToGlobal(vertices, indices);
+                model.components.push_back(component);
+            }
         }
-        return model;
+        std::pair<Model, std::vector<Texture*>> retVal;
+        retVal.first = model;
+        retVal.second = materialTextures;
+        return retVal;
     }
 
     
@@ -2852,7 +2898,7 @@ struct Scene
     }
 
     // Build acceleration structures needed for raytracing.
-    void BuildAccelerationStructures(std::vector<Model> boxModels)
+    void BuildAccelerationStructures()
     {
        
         // Reset the command list for the acceleration structure construction.
@@ -2861,25 +2907,25 @@ struct Scene
         //numInstances++;
         instanceDescsArray = new D3D12_RAYTRACING_INSTANCE_DESC[numInstances];
         UINT index = 0;
-        for (int i = 0; i < boxModels.size(); ++i) {
-            for (int j = 0; j < boxModels[i].components.size(); j++)
+        for (int i = 0; i < models.size(); ++i) {
+            for (int j = 0; j < models[i].components.size(); j++)
             {
                 instanceDescsArray[index] = D3D12_RAYTRACING_INSTANCE_DESC();
-                float x = boxModels[i].components[j].transform.m[0][0];
-                float y = boxModels[i].components[j].transform.m[1][1];
-                float z = boxModels[i].components[j].transform.m[2][2];
+                float x = models[i].components[j].transform.m[0][0];
+                float y = models[i].components[j].transform.m[1][1];
+                float z = models[i].components[j].transform.m[2][2];
                 for (int x = 0; x < 3; x++)
                 {
                     for (int y = 0; y < 4; y++)
                     {
-                        instanceDescsArray[index].Transform[x][y] = boxModels[i].components[j].transform.m[x][y];
+                        instanceDescsArray[index].Transform[x][y] = models[i].components[j].transform.m[x][y];
                     }
                 }
                 instanceDescsArray[index].InstanceMask = 1;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
-                instanceDescsArray[index].AccelerationStructure = globalVertexBuffer.m_globalBottomLevelAccelerationStructures[boxModels[i].components[j].vbIndex]->GetGPUVirtualAddress();
-                instanceData[index].vertexBufferId = boxModels[i].components[j].vbIndex;
-                instanceData[index].textureId = boxModels[i].material.TexIndex;
+                instanceDescsArray[index].AccelerationStructure = globalVertexBuffer.m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
+                instanceData[index].vertexBufferId = models[i].components[j].vbIndex;
+                instanceData[index].textureId = models[i].components[j].material.TexIndex;
                 if (x >= z && y >= z)
                 {
                     instanceData[index].uv.x = x;
@@ -2895,7 +2941,7 @@ struct Scene
                     instanceData[index].uv.x = x;
                     instanceData[index].uv.y = z;
                 }
-                instanceData[index].color = boxModels[i].components[j].color;
+                instanceData[index].color = models[i].components[j].color;
                 index++;
             }
         }
@@ -3078,7 +3124,7 @@ struct Scene
         aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
 
 
-        BuildAccelerationStructures(models);
+        BuildAccelerationStructures();
     }
 
     // Create constant buffers.
@@ -3148,13 +3194,17 @@ struct Scene
     Model AddObjModelToScene(std::string fileName)
     {
         UINT numModels = globalVertexBuffer.numVertexBuffers;
-        Model model = Model::InitFromObj(fileName, globalVertexBuffer);
+        std::pair<Model, std::vector<Texture*>> modelAndTextures = Model::InitFromObj(fileName, globalVertexBuffer, textures.size());
         for (int i = numModels; i < globalVertexBuffer.numVertexBuffers; i++)
         {
             vertexBufferDatas[i].vertexOffset = globalVertexBuffer.globalStartVBIndices[i].first;
             vertexBufferDatas[i].indexOffset = globalVertexBuffer.globalStartIBIndices[i].first;
         }
-        return model;
+        for (int i = 0; i < modelAndTextures.second.size(); i++)
+        {
+            PushBackTexture(modelAndTextures.second[i]);
+        }
+        return modelAndTextures.first;
     }
 
     Scene() : numInstances(0) {}
@@ -3185,10 +3235,7 @@ struct SceneModel : Scene
     VertexBuffer model;
 
     void Init(bool includeIntensiveGPUobject) override
-    {
-
-        PushBackTexture(new Texture("Charizard/images/pm0006_00_BodyA1.png"));
-        
+    {   
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
@@ -3196,13 +3243,13 @@ struct SceneModel : Scene
         models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR-1)));
 
         Model model = AddObjModelToScene("Charizard/charizard.obj");
-        model.material = Material(textures.size() - 1);
+        //model.material = Material(textures.size() - 1);
         models.push_back(model);
 
         numInstances = ModelComponent::numInstances;
         globalVertexBuffer.InitGlobalVertexBuffers();
         globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
-        BuildAccelerationStructures(models);
+        BuildAccelerationStructures();
     }
 };
 
