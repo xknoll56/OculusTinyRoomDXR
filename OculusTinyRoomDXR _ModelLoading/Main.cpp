@@ -382,7 +382,9 @@ static bool MainLoop(bool retryCreate)
                 XMVECTOR cubePos = { 9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.0015f), 0 };
                 XMFLOAT3 cubePosAsFloat3;
                 XMStoreFloat3(&cubePosAsFloat3, cubePos);
-                //modelScene->UpdateInstancePosition(1, cubePosAsFloat3);
+                modelScene->UpdateModelPosition(1, cubePosAsFloat3);
+                XMMATRIX rot = XMMatrixRotationY(0.015f);
+                modelScene->ApplyModelTransformation(1, rot);
                 //roomScene->UpdateInstancePosition(45, cubePosAsFloat3);
             }
 

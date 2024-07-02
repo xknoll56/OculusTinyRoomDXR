@@ -49,9 +49,9 @@ struct Light
 };
 
 #define MAX_INSTANCES 400
-#define MAX_MODELS 100
+#define MAX_MODELS 400
 #define MAX_LIGHTS 4
-#define NUM_TEXTURES 40
+#define NUM_TEXTURES 60
 
 struct SceneConstantBuffer
 {

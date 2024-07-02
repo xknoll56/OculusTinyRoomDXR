@@ -2649,7 +2649,29 @@ struct Model
     //    }
     //}
 
-    static std::pair<Model, std::vector<Texture*>> InitFromObj(std::string filePath, VertexBuffer& vertexBuffer, UINT textureOffset)
+    void ApplyTransformation(XMMATRIX transformation)
+    {
+        for (int i = 0; i < components.size(); i++)
+        {
+            components[i].transform = XMMatrixMultiply(transformation, components[i].transform);
+        }
+        transform = XMMatrixMultiply(transformation, transform);
+    }
+
+    void SetPosition(XMFLOAT3 position)
+    {
+        XMFLOAT3 curPosition = { transform.r[3].m128_f32[0], transform.r[3].m128_f32[1] , transform.r[3].m128_f32[2] };
+        XMMATRIX translation = XMMatrixTranslation(position.x - curPosition.x, position.y - curPosition.y, position.z - curPosition.z);
+        for (int i = 0; i < components.size(); i++)
+        {
+            components[i].transform = XMMatrixMultiply(translation, components[i].transform);
+        }
+        transform.r[3].m128_f32[0] = position.x;
+        transform.r[3].m128_f32[1] = position.y;
+        transform.r[3].m128_f32[2] = position.z;
+    }
+
+    static std::pair<Model, std::vector<Texture*>> InitFromObj(std::string filePath, std::string texturesDir, VertexBuffer& vertexBuffer, UINT textureOffset)
     {
         Model model;
         
@@ -2675,7 +2697,11 @@ struct Model
         std::vector<Texture*> materialTextures;
         for (int i = 0; i < materials.size(); i++)
         {
-            materialTextures.push_back(new Texture(materials[i].diffuse_texname.c_str()));
+            if (materials[i].diffuse_texname.size() > 0)
+            {
+                std::string textPath = texturesDir + "/" + materials[i].diffuse_texname;
+                materialTextures.push_back(new Texture(textPath.c_str()));
+            }
         }
         
 
@@ -2768,8 +2794,8 @@ struct Model
 };
 
 #define MAX_INSTANCES 400
-#define MAX_VBS 100
-#define MAX_TEXTURES 40
+#define MAX_VBS 400
+#define MAX_TEXTURES 60
 //-------------------------------------------------------------------------
 struct Scene
 {
@@ -2844,6 +2870,30 @@ struct Scene
         instanceDescsArray[instanceIndex].Transform[0][3] = position.x;
         instanceDescsArray[instanceIndex].Transform[1][3] = position.y;
         instanceDescsArray[instanceIndex].Transform[2][3] = position.z;
+    }
+
+    void UpdateModelPosition(UINT modelIndex, XMFLOAT3 position)
+    {
+        if (modelIndex < models.size())
+        {
+            models[modelIndex].SetPosition(position);
+            for (int i = 0; i < models[modelIndex].components.size(); i++)
+            {
+                UpdateInstanceTransform(models[modelIndex].components[i].instanceIndex, models[modelIndex].components[i].transform);
+            }
+        }
+    }
+
+    void ApplyModelTransformation(UINT modelIndex, XMMATRIX transformation)
+    {
+        if (modelIndex < models.size())
+        {
+            models[modelIndex].ApplyTransformation(transformation);
+            for (int i = 0; i < models[modelIndex].components.size(); i++)
+            {
+                UpdateInstanceTransform(models[modelIndex].components[i].instanceIndex, models[modelIndex].components[i].transform);
+            }
+        }
     }
 
     void UpdateInstanceTransform(UINT instanceIndex, XMMATRIX transformMatrix)
@@ -3182,10 +3232,10 @@ struct Scene
         }
     }
 
-    Model AddObjModelToScene(std::string fileName)
+    Model AddObjModelToScene(std::string fileName, std::string texturesDir)
     {
         UINT numModels = globalVertexBuffer.numVertexBuffers;
-        std::pair<Model, std::vector<Texture*>> modelAndTextures = Model::InitFromObj(fileName, globalVertexBuffer, textures.size());
+        std::pair<Model, std::vector<Texture*>> modelAndTextures = Model::InitFromObj(fileName, texturesDir, globalVertexBuffer, textures.size());
         for (int i = numModels; i < globalVertexBuffer.numVertexBuffers; i++)
         {
             vertexBufferDatas[i].vertexOffset = globalVertexBuffer.globalStartVBIndices[i].first;
@@ -3228,13 +3278,10 @@ struct SceneModel : Scene
     void Init(bool includeIntensiveGPUobject) override
     {   
         std::vector<ModelComponent> transforms;
-        numInstances = 0;
 
-        transforms.push_back(ModelComponent(3.5f, -0.5f, 0.5f, 2.5f, 0.5f, -0.5f, 0xff404040));
-        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR-1)));
-
-        Model model = AddObjModelToScene("Charizard/charizard.obj");
-        //model.material = Material(textures.size() - 1);
+        Model model = AddObjModelToScene("Sponza/sponza.obj", "Sponza");
+        XMMATRIX scaleAdjust = XMMatrixScaling(0.01, 0.01, 0.01);
+        model.ApplyTransformation(scaleAdjust);
         models.push_back(model);
 
         numInstances = ModelComponent::numInstances;
