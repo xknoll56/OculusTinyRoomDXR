@@ -2560,6 +2560,7 @@ struct ModelComponent
     VertexBuffer* pVertexBuffer;
     Material material;
     static UINT numInstances;
+    bool scaleUvs = false;
 
     void SetIdentity()
     {
@@ -2608,6 +2609,7 @@ struct ModelComponent
         pVertexBuffer = nullptr;
         vbIndex = 0;
         instanceIndex = numInstances++;
+        scaleUvs = true;
     }
 
 };
@@ -2674,7 +2676,7 @@ struct Model
     static std::pair<Model, std::vector<Texture*>> InitFromObj(std::string filePath, std::string texturesDir, VertexBuffer& vertexBuffer, UINT textureOffset)
     {
         Model model;
-        
+
         tinyobj::ObjReaderConfig reader_config;
         reader_config.mtl_search_path = ""; // Path to material files
 
@@ -2695,15 +2697,17 @@ struct Model
         std::vector<tinyobj::material_t> materials = reader.GetMaterials();
 
         std::vector<Texture*> materialTextures;
+        std::unordered_map<int, int> materialToTextureIndex;
+
         for (int i = 0; i < materials.size(); i++)
         {
             if (materials[i].diffuse_texname.size() > 0)
             {
                 std::string textPath = texturesDir + "/" + materials[i].diffuse_texname;
                 materialTextures.push_back(new Texture(textPath.c_str()));
+                materialToTextureIndex[i] = materialTextures.size() - 1 + textureOffset; // Map material ID to texture index
             }
         }
-        
 
         // Create a hash function for the Vertex
         struct VertexHash {
@@ -2733,7 +2737,12 @@ struct Model
                     if (!indices.empty()) {
                         ModelComponent component;
                         component.vbIndex = vertexBuffer.globalStartVBIndices.size();
-                        component.material.TexIndex = currentMaterialId + textureOffset;
+                        if (materialToTextureIndex.find(currentMaterialId) != materialToTextureIndex.end()) {
+                            component.material.TexIndex = materialToTextureIndex[currentMaterialId];
+                        }
+                        else {
+                            component.material.TexIndex = -1; // No texture
+                        }
                         vertexBuffer.AddVerticeAndIndicesToGlobal(vertices, indices);
                         model.components.push_back(component);
 
@@ -2779,16 +2788,23 @@ struct Model
             if (!indices.empty()) {
                 ModelComponent component;
                 component.vbIndex = vertexBuffer.globalStartVBIndices.size();
-                component.material.TexIndex = currentMaterialId + textureOffset;
+                if (materialToTextureIndex.find(currentMaterialId) != materialToTextureIndex.end()) {
+                    component.material.TexIndex = materialToTextureIndex[currentMaterialId];
+                }
+                else {
+                    component.material.TexIndex = -1; // No texture
+                }
                 vertexBuffer.AddVerticeAndIndicesToGlobal(vertices, indices);
                 model.components.push_back(component);
             }
         }
+
         std::pair<Model, std::vector<Texture*>> retVal;
         retVal.first = model;
         retVal.second = materialTextures;
         return retVal;
     }
+
 
     
 };
@@ -2967,20 +2983,29 @@ struct Scene
                 instanceDescsArray[index].AccelerationStructure = globalVertexBuffer.m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
                 instanceData[index].vertexBufferId = models[i].components[j].vbIndex;
                 instanceData[index].textureId = models[i].components[j].material.TexIndex;
-                if (x >= z && y >= z)
+
+                if (models[i].components[j].scaleUvs)
                 {
-                    instanceData[index].uv.x = x;
-                    instanceData[index].uv.y = y;
-                }
-                else if (y >= x && z >= x)
-                {
-                    instanceData[index].uv.x = z;
-                    instanceData[index].uv.y = y;
+                    if (x >= z && y >= z)
+                    {
+                        instanceData[index].uv.x = x;
+                        instanceData[index].uv.y = y;
+                    }
+                    else if (y >= x && z >= x)
+                    {
+                        instanceData[index].uv.x = z;
+                        instanceData[index].uv.y = y;
+                    }
+                    else
+                    {
+                        instanceData[index].uv.x = x;
+                        instanceData[index].uv.y = z;
+                    }
                 }
                 else
                 {
-                    instanceData[index].uv.x = x;
-                    instanceData[index].uv.y = z;
+                    instanceData[index].uv.x = 1.0f;
+                    instanceData[index].uv.y = 1.0f;
                 }
                 instanceData[index].color = models[i].components[j].color;
                 index++;
