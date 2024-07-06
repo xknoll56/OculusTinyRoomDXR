@@ -228,6 +228,29 @@ struct OculusEyeTexture
     }
 };
 
+//-----------------------------------------------------------
+struct SceneModel : Scene
+{
+    SceneModel() : Scene() {}
+    SceneModel(bool includeIntesndiveGPUobject) : Scene(includeIntesndiveGPUobject) {}
+    VertexBuffer model;
+
+    void Init(bool includeIntensiveGPUobject) override
+    {
+        std::vector<ModelComponent> transforms;
+
+        Model model = AddObjModelToScene("Sponza/sponza.obj", "Sponza");
+        XMMATRIX scaleAdjust = XMMatrixScaling(0.01, 0.01, 0.01);
+        model.ApplyTransformation(scaleAdjust);
+        models.push_back(model);
+
+        numInstances = ModelComponent::numInstances;
+        globalVertexBuffer.InitGlobalVertexBuffers();
+        globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
+        BuildAccelerationStructures();
+    }
+};
+
 // return true to retry later (e.g. after display lost)
 static bool MainLoop(bool retryCreate)
 {

@@ -3185,9 +3185,10 @@ struct Scene
 
         models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
         numInstances = ModelComponent::numInstances;
-        globalVertexBuffer.InitBox();
-        globalVertexBuffer.InitBottomLevelAccelerationObject();
-        aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
+
+        globalVertexBuffer.InitGlobalVertexBuffers();
+        globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
+       // aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
 
 
         BuildAccelerationStructures();
@@ -3290,29 +3291,6 @@ struct Scene
     ~Scene()
     {
         Release();
-    }
-};
-
-//-----------------------------------------------------------
-struct SceneModel : Scene
-{
-    SceneModel() : Scene() {}
-    SceneModel(bool includeIntesndiveGPUobject) : Scene(includeIntesndiveGPUobject) {}
-    VertexBuffer model;
-
-    void Init(bool includeIntensiveGPUobject) override
-    {   
-        std::vector<ModelComponent> transforms;
-
-        Model model = AddObjModelToScene("Sponza/sponza.obj", "Sponza");
-        XMMATRIX scaleAdjust = XMMatrixScaling(0.01, 0.01, 0.01);
-        model.ApplyTransformation(scaleAdjust);
-        models.push_back(model);
-
-        numInstances = ModelComponent::numInstances;
-        globalVertexBuffer.InitGlobalVertexBuffers();
-        globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
-        BuildAccelerationStructures();
     }
 };
 

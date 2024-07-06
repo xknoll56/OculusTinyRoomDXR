@@ -228,14 +228,13 @@ struct OculusEyeTexture
     }
 };
 
-Texture** pTextures;
 // return true to retry later (e.g. after display lost)
 static bool MainLoop(bool retryCreate)
 {
     // Initialize these to nullptr here to handle device lost failures cleanly
     ovrMirrorTexture            mirrorTexture = nullptr;
     OculusEyeTexture* pEyeRenderTexture[2] = { nullptr, nullptr };
-    Scene* roomScene = nullptr;
+    Scene* scene = nullptr;
     Camera* mainCam = nullptr;
     ovrMirrorTextureDesc        mirrorDesc = {};
     ovrInputState inputState;
@@ -313,32 +312,17 @@ static bool MainLoop(bool retryCreate)
     }
 
     // Create the room model
-    pTextures = new Texture * [Texture::numTextures];
-    for (int i = 0; i < Texture::numTextures; i++)
-    {
-        pTextures[i] = new Texture(false, 256, 256, (Texture::AutoFill)(i+1));
-    }
-    roomScene = new Scene(false);
-    //textureTest = new Texture(false, 256, 256, Texture::AUTO_FLOOR);
-    //textureTest1 = new Texture(false, 256, 256, Texture::AUTO_WALL);
+    scene = new Scene(false);
+    scene->Init(false);
 
     
     // Create camera
     static float Yaw = XM_PI;
-    mainCam = new Camera(XMVectorSet(0.0f, 0.0f, -10.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
+    mainCam = new Camera(XMVectorSet(0.0f, 0.0f, 0.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
 
     DIRECTX.InitFrame(drawMirror);
 
-    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 0, textureTest->TextureRes);
-    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 1, textureTest1->TextureRes);
-    
-
-
-
-    for (int i = 0; i < Texture::numTextures; i++)
-    {
-        DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], i, pTextures[i]->TextureRes);
-    }
+    scene->InitTexturesToTexArray();
 
 
     // Main loop
@@ -373,8 +357,8 @@ static bool MainLoop(bool retryCreate)
             result = ovr_GetInputState(session, ovrControllerType_Touch, &inputState);
             float thumbstickX = inputState.Thumbstick[ovrHand_Left].x;
             float thumbstickY = inputState.Thumbstick[ovrHand_Left].y;
-            XMVECTOR movement = XMVectorAdd(XMVectorScale(forward, thumbstickY), XMVectorScale(right, thumbstickX));
-            mainCamPos = XMVectorAdd(mainCamPos, movement);
+            XMVECTOR horMovement = XMVectorAdd(XMVectorScale(forward, thumbstickY), XMVectorScale(right, thumbstickX));
+            mainCamPos = XMVectorAdd(mainCamPos, horMovement);
             
             if (DIRECTX.Key[VK_LEFT])  mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw += 0.02f, 0);
             if (DIRECTX.Key[VK_RIGHT]) mainCamRot = XMQuaternionRotationRollPitchYaw(0, Yaw -= 0.02f, 0);
@@ -383,11 +367,13 @@ static bool MainLoop(bool retryCreate)
 
             float leftBottomTrigger = inputState.IndexTrigger[ovrHand_Left];
             float rightBottomTrigger = inputState.IndexTrigger[ovrHand_Right];
-            movement = XMVectorScale({0, 1, 0, 0}, (-leftBottomTrigger+rightBottomTrigger)*0.05f);
-            mainCamPos = XMVectorAdd(mainCamPos, movement);
+            XMVECTOR vertMovement = XMVectorScale({0, 1, 0, 0}, (-leftBottomTrigger+rightBottomTrigger)*0.05f);
+            mainCamPos = XMVectorAdd(mainCamPos, vertMovement);
 
             mainCam->SetPosVec(mainCamPos);
             mainCam->SetRotVec(mainCamRot);
+
+            scene->lights[0].position = { 0,3,0,0 };
 
             // Animate the cube
             static float cubeClock = 0;
@@ -396,8 +382,8 @@ static bool MainLoop(bool retryCreate)
                 XMVECTOR cubePos = { 9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.0015f), 0 };
                 XMFLOAT3 cubePosAsFloat3;
                 XMStoreFloat3(&cubePosAsFloat3, cubePos);
-                roomScene->UpdateInstancePosition(0, cubePosAsFloat3);
-                roomScene->lights[0].position = cubePos;
+                scene->UpdateInstancePosition(0, cubePosAsFloat3);
+                scene->UpdateInstancePosition(45, cubePosAsFloat3);
             }
 
             // Call ovr_GetRenderDesc each frame to get the ovrEyeRenderDesc, as the returned values (e.g. HmdToEyePose) may change at runtime.
@@ -427,7 +413,7 @@ static bool MainLoop(bool retryCreate)
 
                 // Update the laft hand position and orientation
                 XMVECTOR posVec = { leftControllerPosition.x, leftControllerPosition.y, leftControllerPosition.z, 0 };
-                posVec = XMVectorAdd(XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot)), movement);
+                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
 
                 XMVECTOR handQuat = XMVectorSet(leftControllerOrientation.x, leftControllerOrientation.y,
                     leftControllerOrientation.z, leftControllerOrientation.w);
@@ -439,11 +425,11 @@ static bool MainLoop(bool retryCreate)
                 XMMATRIX scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
                 XMMATRIX transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
 
-                roomScene->UpdateInstanceTransform(1, transformationMatrix);
+                scene->UpdateInstanceTransform(1, transformationMatrix);
 
                 // Now update the right hand
                 posVec = { rightControllerPosition.x, rightControllerPosition.y, rightControllerPosition.z, 0 };
-                posVec = XMVectorAdd(XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot)), movement);
+                posVec = XMVectorAdd(mainCamPos, XMVector3Rotate(posVec, mainCamRot));
 
                 handQuat = XMVectorSet(rightControllerOrientation.x, rightControllerOrientation.y,
                     rightControllerOrientation.z, rightControllerOrientation.w);
@@ -455,13 +441,13 @@ static bool MainLoop(bool retryCreate)
                 scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
                 transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
 
-                roomScene->UpdateInstanceTransform(2, transformationMatrix);
+                scene->UpdateInstanceTransform(2, transformationMatrix);
             }
 
             ovrTimewarpProjectionDesc PosTimewarpProjectionDesc = {};
 
-            roomScene->UpdateInstanceDescs();
-            roomScene->UpdateTLAS();
+            scene->UpdateInstanceDescs();
+            scene->UpdateTLAS();
             
             // Render Scene to Eye Buffers
             for (int eye = 0; eye < 2; ++eye)
@@ -500,7 +486,7 @@ static bool MainLoop(bool retryCreate)
                     p.M[0][3], p.M[1][3], p.M[2][3], p.M[3][3]);
                 XMMATRIX prod = XMMatrixMultiply(view, proj);
 
-                roomScene->DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
+                scene->DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
                 DIRECTX.CopyRaytracingOutputToBackbuffer(pEyeRenderTexture[eye]->GetD3DColorResource(), pEyeRenderTexture[eye]->GetD3DDepthResource());
 
                 resBar = CD3DX12_RESOURCE_BARRIER::Transition(pEyeRenderTexture[eye]->GetD3DColorResource(),
@@ -599,7 +585,7 @@ static bool MainLoop(bool retryCreate)
     // Release resources
 Done:
     delete mainCam;
-    delete roomScene;
+    delete scene;
     if (mirrorTexture)
         ovr_DestroyMirrorTexture(session, mirrorTexture);
 

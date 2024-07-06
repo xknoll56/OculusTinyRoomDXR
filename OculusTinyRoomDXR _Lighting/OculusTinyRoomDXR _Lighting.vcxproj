@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{28F5D59C-59D4-49C3-8004-BD4F561E6098}</ProjectGuid>
+    <ProjectGuid>{2B3B15D8-7C58-4C11-8AFF-156DEA960D01}</ProjectGuid>
     <RootNamespace>OculusTinyRoomDXR</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -136,8 +136,8 @@
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\Common\Win32_DirectX12AppUtil.h" />
     <ClInclude Include="Win32_d3dx12.h" />
-    <ClInclude Include="Win32_DirectX12AppUtil.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Raytracing.hlsl">

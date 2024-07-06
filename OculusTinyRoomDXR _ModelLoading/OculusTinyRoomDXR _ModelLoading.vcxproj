@@ -136,8 +136,8 @@
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\Common\Win32_DirectX12AppUtil.h" />
     <ClInclude Include="Win32_d3dx12.h" />
-    <ClInclude Include="Win32_DirectX12AppUtil.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Raytracing.hlsl">
