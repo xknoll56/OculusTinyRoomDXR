@@ -2639,6 +2639,7 @@ struct Model
     XMMATRIX transform;
     VertexBuffer* pVertexBuffer;
     UINT hitShaderIndex;
+    UINT layerMask;
 
     Model() 
     {
@@ -2653,6 +2654,7 @@ struct Model
         transform = XMMatrixIdentity();
         this->pVertexBuffer = pVertexBuffer;
         this->hitShaderIndex = hitShaderIndex;
+        this->layerMask = ~0;
     }
 
     //Model(std::vector<ModelComponent> components)
@@ -3000,7 +3002,7 @@ struct Scene
                         instanceDescsArray[index].Transform[x][y] = models[i].components[j].transform.r[x].m128_f32[y];
                     }
                 }
-                instanceDescsArray[index].InstanceMask = 1;
+                instanceDescsArray[index].InstanceMask = models[i].layerMask;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = models[i].pVertexBuffer->m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
                 instanceDescsArray[index].InstanceContributionToHitGroupIndex = models[i].hitShaderIndex;
