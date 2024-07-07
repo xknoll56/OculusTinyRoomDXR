@@ -2010,7 +2010,6 @@ struct VertexBuffer
 {
     DirectX12::D3DBuffer indexBuffer;
     DirectX12::D3DBuffer vertexBuffer;
-    ComPtr<ID3D12Resource> m_bottomLevelAccelerationStructure;
     std::vector<Vertex> globalVertices;
     std::vector<UINT> globalIndices;
     std::vector<std::pair<UINT, UINT>> globalStartVBIndices;
@@ -2317,6 +2316,9 @@ struct VertexBuffer
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
 
+        ID3D12Resource* pResource;
+        m_globalBottomLevelAccelerationStructures.push_back(pResource);
+
         D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
         geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
         geometryDesc.Triangles.IndexBuffer = indexBuffer.resource->GetGPUVirtualAddress();
@@ -2360,7 +2362,7 @@ struct VertexBuffer
         {
             D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
 
-            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_globalBottomLevelAccelerationStructures[0], initialResourceState, L"BottomLevelAccelerationStructure");
         }
 
         // Bottom Level Acceleration Structure desc
@@ -2368,14 +2370,14 @@ struct VertexBuffer
         {
             bottomLevelBuildDesc.Inputs = bottomLevelInputs;
             bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
-            bottomLevelBuildDesc.DestAccelerationStructureData = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+            bottomLevelBuildDesc.DestAccelerationStructureData = m_globalBottomLevelAccelerationStructures[0]->GetGPUVirtualAddress();
         }
 
 
         auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
             {
                 raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
-                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_bottomLevelAccelerationStructure.Get());
+                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_globalBottomLevelAccelerationStructures[0]);
                 DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
             };
 
@@ -2394,6 +2396,9 @@ struct VertexBuffer
     {
         // Reset the command list for the acceleration structure construction.
         DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->Reset(DIRECTX.CurrentFrameResources().CommandAllocators[DrawContext_Final], nullptr);
+
+        ID3D12Resource* pResource;
+        m_globalBottomLevelAccelerationStructures.push_back(pResource);
 
         D3D12_RAYTRACING_AABB aabb = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
         DIRECTX.AllocateUploadBuffer(DIRECTX.Device, &aabb, sizeof(D3D12_RAYTRACING_AABB), &vertexBuffer.resource);
@@ -2426,7 +2431,7 @@ struct VertexBuffer
         {
             D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
 
-            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_bottomLevelAccelerationStructure, initialResourceState, L"BottomLevelAccelerationStructure");
+            DIRECTX.AllocateUAVBuffer(DIRECTX.Device, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, &m_globalBottomLevelAccelerationStructures[0], initialResourceState, L"BottomLevelAccelerationStructure");
         }
 
         // Bottom Level Acceleration Structure desc
@@ -2434,14 +2439,14 @@ struct VertexBuffer
         {
             bottomLevelBuildDesc.Inputs = bottomLevelInputs;
             bottomLevelBuildDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
-            bottomLevelBuildDesc.DestAccelerationStructureData = m_bottomLevelAccelerationStructure->GetGPUVirtualAddress();
+            bottomLevelBuildDesc.DestAccelerationStructureData = m_globalBottomLevelAccelerationStructures[0]->GetGPUVirtualAddress();
         }
 
 
         auto BuildAccelerationStructure = [&](auto* raytracingCommandList)
             {
                 raytracingCommandList->BuildRaytracingAccelerationStructure(&bottomLevelBuildDesc, 0, nullptr);
-                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_bottomLevelAccelerationStructure.Get());
+                CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_globalBottomLevelAccelerationStructures[0]);
                 DIRECTX.CurrentFrameResources().CommandLists[DrawContext_Final]->ResourceBarrier(1, &barrier);
             };
 
@@ -2573,6 +2578,17 @@ struct ModelComponent
         GetNormalizedRGB(0xffffffff);
         pVertexBuffer = nullptr;
         instanceIndex = numInstances++;
+        vbIndex = 0;
+    }
+
+    ModelComponent(Material mat)
+    {
+        SetIdentity();
+        GetNormalizedRGB(0xffffffff);
+        pVertexBuffer = nullptr;
+        instanceIndex = numInstances++;
+        material = mat;
+        vbIndex = 0;
     }
 
     void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
@@ -2621,25 +2637,29 @@ struct Model
 {
     std::vector<ModelComponent> components;
     XMMATRIX transform;
+    VertexBuffer* pVertexBuffer;
+    UINT hitShaderIndex;
 
     Model() 
     {
         transform = XMMatrixIdentity();
     }
     
-    Model(std::vector<ModelComponent> components, Material material)
+    Model(std::vector<ModelComponent> components, Material material, VertexBuffer* pVertexBuffer, UINT hitShaderIndex)
     {
         this->components = components;
         for (int i = 0; i < components.size(); i++)
             this->components[i].material = material;
         transform = XMMatrixIdentity();
+        this->pVertexBuffer = pVertexBuffer;
+        this->hitShaderIndex = hitShaderIndex;
     }
 
-    Model(std::vector<ModelComponent> components)
-    {
-        this->components = components;
-        transform = XMMatrixIdentity();
-    }
+    //Model(std::vector<ModelComponent> components)
+    //{
+    //    this->components = components;
+    //    transform = XMMatrixIdentity();
+    //}
 
     //void Translate(XMFLOAT3 translation)
     //{
@@ -2800,6 +2820,8 @@ struct Model
         }
 
         std::pair<Model, std::vector<Texture*>> retVal;
+        model.pVertexBuffer = &vertexBuffer;
+        model.hitShaderIndex = 0;
         retVal.first = model;
         retVal.second = materialTextures;
         return retVal;
@@ -2980,7 +3002,8 @@ struct Scene
                 }
                 instanceDescsArray[index].InstanceMask = 1;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
-                instanceDescsArray[index].AccelerationStructure = globalVertexBuffer.m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
+                instanceDescsArray[index].AccelerationStructure = models[i].pVertexBuffer->m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
+                instanceDescsArray[index].InstanceContributionToHitGroupIndex = models[i].hitShaderIndex;
                 instanceData[index].vertexBufferId = models[i].components[j].vbIndex;
                 instanceData[index].textureId = models[i].components[j].material.TexIndex;
 
@@ -3133,29 +3156,29 @@ struct Scene
         numInstances = 0;
 
         transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
-        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1), &globalVertexBuffer, 0));
         
         transforms.clear();
         transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
         transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
-        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
 
 
         transforms.clear();
         transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
         transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
         transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
-        models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1)));
+        models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1), &globalVertexBuffer, 0));
 
         transforms.clear();
         transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
         transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
-        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1), &globalVertexBuffer, 0));
 
 
         transforms.clear();
         transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
-        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1), &globalVertexBuffer, 0));
 
         transforms.clear();
         //TriangleSet furniture;
@@ -3183,7 +3206,7 @@ struct Scene
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
             transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
 
-        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
         numInstances = ModelComponent::numInstances;
 
         globalVertexBuffer.InitGlobalVertexBuffers();

@@ -228,14 +228,93 @@ struct OculusEyeTexture
     }
 };
 
-Texture** pTextures;
+//-----------------------------------------------------------
+struct SceneSphere : Scene
+{
+    SceneSphere() : Scene() {}
+    SceneSphere(bool includeIntesndiveGPUobject) : Scene(includeIntesndiveGPUobject) {}
+
+    void Init(bool includeIntensiveGPUobject) override
+    {
+        std::vector<ModelComponent> transforms;
+        numInstances = 0;
+
+        //transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
+        //models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1), &globalVertexBuffer, 0));
+        ModelComponent sphereComp;
+        transforms.push_back(sphereComp);
+        Material sphereMat;
+        models.push_back(Model(transforms, sphereMat, &aabbVertexBuffer, 1));
+   
+
+
+        transforms.clear();
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
+
+
+        transforms.clear();
+        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
+        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
+        models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1), &globalVertexBuffer, 0));
+
+        transforms.clear();
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
+        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
+        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1), &globalVertexBuffer, 0));
+
+
+        transforms.clear();
+        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1), &globalVertexBuffer, 0));
+
+        transforms.clear();
+        //TriangleSet furniture;
+        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838));    // Right side shelf// Verticals
+        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838));   // Right side shelf
+        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838)); // Right side shelf// Horizontals
+        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838)); // Right side shelf
+        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838));   // Right railing
+        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838));   // Left railing
+        for (float f = 5; f <= 9; f += 1)
+            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050)); // Left Bars
+        for (float f = 5; f <= 9; f += 1)
+            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050)); // Right Bars
+        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000));  // Table
+        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000)); // Table Leg
+        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000)); // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000));  // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000));  // Table Leg
+        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050));  // Chair Set
+        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050)); // Chair Leg 1
+        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050)); // Chair Leg 2
+        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050)); // Chair Back high bar
+        for (float f = 3.0f; f <= 6.6f; f += 0.4f)
+            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
+
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
+        numInstances = ModelComponent::numInstances;
+
+        globalVertexBuffer.InitGlobalVertexBuffers();
+        globalVertexBuffer.InitGlobalBottomLevelAccelerationObject();
+        aabbVertexBuffer.InitAABBBottomLevelAccelerationObject();
+
+
+        BuildAccelerationStructures();
+    }
+};
+
 // return true to retry later (e.g. after display lost)
 static bool MainLoop(bool retryCreate)
 {
     // Initialize these to nullptr here to handle device lost failures cleanly
     ovrMirrorTexture            mirrorTexture = nullptr;
     OculusEyeTexture* pEyeRenderTexture[2] = { nullptr, nullptr };
-    Scene* roomScene = nullptr;
+    Scene* scene = nullptr;
     Camera* mainCam = nullptr;
     ovrMirrorTextureDesc        mirrorDesc = {};
     ovrInputState inputState;
@@ -313,32 +392,17 @@ static bool MainLoop(bool retryCreate)
     }
 
     // Create the room model
-    pTextures = new Texture * [Texture::numTextures];
-    for (int i = 0; i < Texture::numTextures; i++)
-    {
-        pTextures[i] = new Texture(false, 256, 256, (Texture::AutoFill)(i+1));
-    }
-    roomScene = new Scene(false);
-    //textureTest = new Texture(false, 256, 256, Texture::AUTO_FLOOR);
-    //textureTest1 = new Texture(false, 256, 256, Texture::AUTO_WALL);
+    scene = new SceneSphere(false);
+    scene->Init(false);
 
     
     // Create camera
     static float Yaw = XM_PI;
-    mainCam = new Camera(XMVectorSet(0.0f, 0.0f, -10.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
+    mainCam = new Camera(XMVectorSet(0.0f, 0.0f, 0.0f, 0), XMQuaternionRotationRollPitchYaw(0, Yaw, 0));
 
     DIRECTX.InitFrame(drawMirror);
 
-    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 0, textureTest->TextureRes);
-    //DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], 1, textureTest1->TextureRes);
-    
-
-
-
-    for (int i = 0; i < Texture::numTextures; i++)
-    {
-        DIRECTX.CopyTextureSubresource(DIRECTX.CurrentFrameResources().CommandLists[0], i, pTextures[i]->TextureRes);
-    }
+    scene->InitTexturesToTexArray();
 
 
     // Main loop
@@ -389,7 +453,7 @@ static bool MainLoop(bool retryCreate)
             mainCam->SetPosVec(mainCamPos);
             mainCam->SetRotVec(mainCamRot);
 
-            roomScene->lights[0].position = { 0,3,0,0 };
+            scene->lights[0].position = { 0,3,0,0 };
 
             // Animate the cube
             static float cubeClock = 0;
@@ -398,8 +462,7 @@ static bool MainLoop(bool retryCreate)
                 XMVECTOR cubePos = { 9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.0015f), 0 };
                 XMFLOAT3 cubePosAsFloat3;
                 XMStoreFloat3(&cubePosAsFloat3, cubePos);
-                roomScene->UpdateInstancePosition(0, cubePosAsFloat3);
-                roomScene->UpdateInstancePosition(45, cubePosAsFloat3);
+                scene->UpdateInstancePosition(0, cubePosAsFloat3);
             }
 
             // Call ovr_GetRenderDesc each frame to get the ovrEyeRenderDesc, as the returned values (e.g. HmdToEyePose) may change at runtime.
@@ -441,7 +504,7 @@ static bool MainLoop(bool retryCreate)
                 XMMATRIX scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
                 XMMATRIX transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
 
-                roomScene->UpdateInstanceTransform(1, transformationMatrix);
+                scene->UpdateInstanceTransform(1, transformationMatrix);
 
                 // Now update the right hand
                 posVec = { rightControllerPosition.x, rightControllerPosition.y, rightControllerPosition.z, 0 };
@@ -457,13 +520,13 @@ static bool MainLoop(bool retryCreate)
                 scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
                 transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
 
-                roomScene->UpdateInstanceTransform(2, transformationMatrix);
+                scene->UpdateInstanceTransform(2, transformationMatrix);
             }
 
             ovrTimewarpProjectionDesc PosTimewarpProjectionDesc = {};
 
-            roomScene->UpdateInstanceDescs();
-            roomScene->UpdateTLAS();
+            scene->UpdateInstanceDescs();
+            scene->UpdateTLAS();
             
             // Render Scene to Eye Buffers
             for (int eye = 0; eye < 2; ++eye)
@@ -502,7 +565,7 @@ static bool MainLoop(bool retryCreate)
                     p.M[0][3], p.M[1][3], p.M[2][3], p.M[3][3]);
                 XMMATRIX prod = XMMatrixMultiply(view, proj);
 
-                roomScene->DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
+                scene->DoRaytracing(XMMatrixInverse(nullptr, XMMatrixTranspose(prod)), finalCam.GetPosVec());
                 DIRECTX.CopyRaytracingOutputToBackbuffer(pEyeRenderTexture[eye]->GetD3DColorResource(), pEyeRenderTexture[eye]->GetD3DDepthResource());
 
                 resBar = CD3DX12_RESOURCE_BARRIER::Transition(pEyeRenderTexture[eye]->GetD3DColorResource(),
@@ -601,7 +664,7 @@ static bool MainLoop(bool retryCreate)
     // Release resources
 Done:
     delete mainCam;
-    delete roomScene;
+    delete scene;
     if (mirrorTexture)
         ovr_DestroyMirrorTexture(session, mirrorTexture);
 
