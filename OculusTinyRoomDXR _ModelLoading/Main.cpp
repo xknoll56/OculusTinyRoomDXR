@@ -242,13 +242,14 @@ struct SceneModel : Scene
         models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
 
         components.clear();
-        components.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xFFA500FF));
+        components.push_back(ModelComponent(-0.02f, -0.1f, -0.02f, 0.02f, +0.1f, 0.02f, 0xFFFFFFFF));
+        components.push_back(ModelComponent(-0.04f, 0.1f, -0.04f, 0.04f, +0.16f, 0.04f, 0xFFFFFFFF));
         models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
         models[1].layerMask = 1;
 
         Model model = AddObjModelToScene("Sponza/sponza.obj", "Sponza");
         XMMATRIX scaleAdjust = XMMatrixScaling(0.01, 0.01, 0.01);
-        model.ApplyTransformation(scaleAdjust);
+        model.transform = scaleAdjust;
         models.push_back(model);
 
         numInstances = ModelComponent::numInstances;
@@ -449,10 +450,9 @@ static bool MainLoop(bool retryCreate)
 
                 XMMATRIX translationMatrix = XMMatrixTranslationFromVector(posVec);
                 XMMATRIX rotationMatrix = XMMatrixRotationQuaternion(XMQuaternionMultiply(handQuat, mainCamRot));
-                XMMATRIX scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
-                XMMATRIX transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
+                XMMATRIX transformationMatrix = XMMatrixMultiply(rotationMatrix, translationMatrix);
 
-                modelScene->UpdateInstanceTransform(0, transformationMatrix);
+                modelScene->UpdateModelTransformation(0, transformationMatrix);
 
                 // Now update the right hand
                 posVec = { rightControllerPosition.x, rightControllerPosition.y, rightControllerPosition.z, 0 };
@@ -465,10 +465,10 @@ static bool MainLoop(bool retryCreate)
 
                 translationMatrix = XMMatrixTranslationFromVector(posVec);
                 rotationMatrix = XMMatrixRotationQuaternion(XMQuaternionMultiply(handQuat, mainCamRot));
-                scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
-                transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
+                transformationMatrix = XMMatrixMultiply(rotationMatrix, translationMatrix);
 
-                modelScene->UpdateInstanceTransform(1, transformationMatrix);
+                //modelScene->UpdateInstanceTransform(1, transformationMatrix);
+                modelScene->UpdateModelTransformation(1, transformationMatrix);
                 modelScene->lights[0].position = posVec;
             }
 

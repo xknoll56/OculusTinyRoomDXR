@@ -2594,9 +2594,9 @@ struct ModelComponent
     void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
     {
         // Set position
-        transform.r[0].m128_f32[3] = (x1 + x2) * 0.5f;
-        transform.r[1].m128_f32[3] = (y1 + y2) * 0.5f;
-        transform.r[2].m128_f32[3] = (z1 + z2) * 0.5f;
+        transform.r[3].m128_f32[0] = (x1 + x2) * 0.5f;
+        transform.r[3].m128_f32[1] = (y1 + y2) * 0.5f;
+        transform.r[3].m128_f32[2] = (z1 + z2) * 0.5f;
 
         // Set scale
         transform.r[0].m128_f32[0] = fabsf(x2 - x1);
@@ -2673,23 +2673,17 @@ struct Model
     //    }
     //}
 
-    void ApplyTransformation(XMMATRIX transformation)
-    {
-        for (int i = 0; i < components.size(); i++)
-        {
-            components[i].transform = XMMatrixMultiply(transformation, components[i].transform);
-        }
-        transform = XMMatrixMultiply(transformation, transform);
-    }
+    //void ApplyTransformation(XMMATRIX transformation)
+    //{
+    //    for (int i = 0; i < components.size(); i++)
+    //    {
+    //        components[i].transform = XMMatrixMultiply(transformation, components[i].transform);
+    //    }
+    //    transform = XMMatrixMultiply(transformation, transform);
+    //}
 
     void SetPosition(XMFLOAT3 position)
     {
-        XMFLOAT3 curPosition = { transform.r[3].m128_f32[0], transform.r[3].m128_f32[1] , transform.r[3].m128_f32[2] };
-        XMMATRIX translation = XMMatrixTranslation(position.x - curPosition.x, position.y - curPosition.y, position.z - curPosition.z);
-        for (int i = 0; i < components.size(); i++)
-        {
-            components[i].transform = XMMatrixMultiply(translation, components[i].transform);
-        }
         transform.r[3].m128_f32[0] = position.x;
         transform.r[3].m128_f32[1] = position.y;
         transform.r[3].m128_f32[2] = position.z;
@@ -2913,14 +2907,17 @@ struct Scene
         instanceDescsArray[instanceIndex].Transform[2][3] = position.z;
     }
 
+
     void UpdateModelPosition(UINT modelIndex, XMFLOAT3 position)
     {
         if (modelIndex < models.size())
         {
             models[modelIndex].SetPosition(position);
+            XMMATRIX transform;
             for (int i = 0; i < models[modelIndex].components.size(); i++)
             {
-                UpdateInstanceTransform(models[modelIndex].components[i].instanceIndex, models[modelIndex].components[i].transform);
+                transform = XMMatrixMultiply(models[modelIndex].transform, models[modelIndex].components[i].transform);
+                UpdateInstanceTransform(models[modelIndex].components[i].instanceIndex, transform);
             }
         }
     }
@@ -2929,22 +2926,36 @@ struct Scene
     {
         if (modelIndex < models.size())
         {
-            models[modelIndex].ApplyTransformation(transformation);
+            models[modelIndex].transform = XMMatrixMultiply(transformation, models[modelIndex].transform);
+            XMMATRIX transform;
             for (int i = 0; i < models[modelIndex].components.size(); i++)
             {
-                UpdateInstanceTransform(models[modelIndex].components[i].instanceIndex, models[modelIndex].components[i].transform);
+                transform = XMMatrixMultiply(models[modelIndex].transform, models[modelIndex].components[i].transform);
+                UpdateInstanceTransform(models[modelIndex].components[i].instanceIndex, transform);
+            }
+        }
+    }
+
+    void UpdateModelTransformation(UINT modelIndex, XMMATRIX transform)
+    {
+        if (modelIndex < models.size())
+        {
+            models[modelIndex].transform = transform;
+            XMMATRIX overallTransform;
+            for (int i = 0; i < models[modelIndex].components.size(); i++)
+            {
+                overallTransform = XMMatrixMultiply(models[modelIndex].components[i].transform, models[modelIndex].transform);
+                UpdateInstanceTransform(models[modelIndex].components[i].instanceIndex, overallTransform);
             }
         }
     }
 
     void UpdateInstanceTransform(UINT instanceIndex, XMMATRIX transformMatrix)
     {
+        transformMatrix = XMMatrixTranspose(transformMatrix);
         for (int i = 0; i < 3; i++)
         {
-            for (int j = 0; j < 4; j++)
-            {
-                instanceDescsArray[instanceIndex].Transform[i][j] = transformMatrix.r[j].m128_f32[i];
-            }
+            memcpy(instanceDescsArray[instanceIndex].Transform[i], transformMatrix.r[i].m128_f32, 4 * sizeof(float));
         }
     }
 
@@ -2996,13 +3007,15 @@ struct Scene
                 float x = models[i].components[j].transform.r[0].m128_f32[0];
                 float y = models[i].components[j].transform.r[1].m128_f32[1];
                 float z = models[i].components[j].transform.r[2].m128_f32[2];
-                for (int x = 0; x < 3; x++)
-                {
-                    for (int y = 0; y < 4; y++)
-                    {
-                        instanceDescsArray[index].Transform[x][y] = models[i].components[j].transform.r[x].m128_f32[y];
-                    }
-                }
+                //for (int x = 0; x < 3; x++)
+                //{
+                //    for (int y = 0; y < 4; y++)
+                //    {
+                //        instanceDescsArray[index].Transform[x][y] = models[i].components[j].transform.r[x].m128_f32[y];
+                //    }
+                //}
+                XMMATRIX transform = XMMatrixMultiply(models[i].transform, models[i].components[j].transform);
+                UpdateInstanceTransform(index, transform);
                 instanceDescsArray[index].InstanceMask = models[i].layerMask;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
                 instanceDescsArray[index].AccelerationStructure = models[i].pVertexBuffer->m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
