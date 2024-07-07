@@ -237,7 +237,14 @@ struct SceneModel : Scene
 
     void Init(bool includeIntensiveGPUobject) override
     {
-        std::vector<ModelComponent> transforms;
+        std::vector<ModelComponent> components;
+        components.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
+        models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
+
+        components.clear();
+        components.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xFFA500FF));
+        models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
+        models[1].layerMask = 1;
 
         Model model = AddObjModelToScene("Sponza/sponza.obj", "Sponza");
         XMMATRIX scaleAdjust = XMMatrixScaling(0.01, 0.01, 0.01);
@@ -396,7 +403,6 @@ static bool MainLoop(bool retryCreate)
             mainCam->SetPosVec(mainCamPos);
             mainCam->SetRotVec(mainCamRot);
 
-            modelScene->lights[0].position = { 0,3,0,0 };
 
             // Animate the cube
             static float cubeClock = 0;
@@ -405,10 +411,6 @@ static bool MainLoop(bool retryCreate)
                 XMVECTOR cubePos = { 9 * sin(cubeClock), 3, 9 * cos(cubeClock += 0.0015f), 0 };
                 XMFLOAT3 cubePosAsFloat3;
                 XMStoreFloat3(&cubePosAsFloat3, cubePos);
-                modelScene->UpdateModelPosition(1, cubePosAsFloat3);
-                XMMATRIX rot = XMMatrixRotationY(0.015f);
-                modelScene->ApplyModelTransformation(1, rot);
-                //roomScene->UpdateInstancePosition(45, cubePosAsFloat3);
             }
 
             // Call ovr_GetRenderDesc each frame to get the ovrEyeRenderDesc, as the returned values (e.g. HmdToEyePose) may change at runtime.
@@ -425,7 +427,7 @@ static bool MainLoop(bool retryCreate)
 
             ovrTrackingState ts = ovr_GetTrackingState(session, ovr_GetTimeInSeconds(), ovrTrue);
 
-            if (0 && (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked))) {
+            if (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked)) {
                 ovrPosef leftControllerPose = ts.HandPoses[ovrHand_Left].ThePose;
                 ovrPosef rightControllerPose = ts.HandPoses[ovrHand_Right].ThePose;
 
@@ -450,7 +452,7 @@ static bool MainLoop(bool retryCreate)
                 XMMATRIX scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
                 XMMATRIX transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
 
-                modelScene->UpdateInstanceTransform(1, transformationMatrix);
+                modelScene->UpdateInstanceTransform(0, transformationMatrix);
 
                 // Now update the right hand
                 posVec = { rightControllerPosition.x, rightControllerPosition.y, rightControllerPosition.z, 0 };
@@ -466,7 +468,8 @@ static bool MainLoop(bool retryCreate)
                 scalingMatrix = XMMatrixScalingFromVector(scaleFactors);
                 transformationMatrix = XMMatrixMultiply(scalingMatrix, XMMatrixMultiply(rotationMatrix, translationMatrix));
 
-                modelScene->UpdateInstanceTransform(2, transformationMatrix);
+                modelScene->UpdateInstanceTransform(1, transformationMatrix);
+                modelScene->lights[0].position = posVec;
             }
 
             ovrTimewarpProjectionDesc PosTimewarpProjectionDesc = {};

@@ -2824,6 +2824,7 @@ struct Model
         std::pair<Model, std::vector<Texture*>> retVal;
         model.pVertexBuffer = &vertexBuffer;
         model.hitShaderIndex = 0;
+        model.layerMask = ~0;
         retVal.first = model;
         retVal.second = materialTextures;
         return retVal;

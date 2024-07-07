@@ -117,7 +117,9 @@ inline void GenerateCameraRay(uint2 index, out float3 origin, out float3 directi
     direction = normalize(world.xyz - origin);
 }
 
-
+#define LAYER_HIT 1
+#define LAYER_SHADOW 2
+#define LAYER_REFLECT 4
 
 
 [shader("raygeneration")]
@@ -139,7 +141,7 @@ void MyRaygenShader()
     ray.TMin = 0.001;
     ray.TMax = 10000.0;
     RayPayload payload = { float4(0, 0, 0, 0), 0, ray.Origin, ray.Direction, 0 };
-    TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
+    TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, LAYER_HIT, 0, 1, 0, ray, payload);
 
     // Write the raytraced color to the output texture.
     RenderTarget[DispatchRaysIndex().xy] = payload.color;
@@ -166,7 +168,7 @@ bool IsInShadow(float3 lightDir, float3 hitPoint, float maxDist)
 
     RayPayload payload = { float4(0, 0, 0, 0), 0, shadowRay.Origin, shadowRay.Direction, 1 };
 
-    TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, shadowRay, payload);
+    TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, LAYER_SHADOW, 0, 1, 0, shadowRay, payload);
 
     return payload.depth < shadowRay.TMax;
 }
@@ -185,7 +187,7 @@ float4 ReflectRay(float3 rayDir, float3 normal, float3 hitPosition, float reflec
     RayPayload reflectPayload = { float4(0, 0, 0, 0), 0, reflectRay.Origin, reflectRay.Direction, 2 };
 
             // Trace reflection ray
-    TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, reflectRay, reflectPayload);
+    TraceRay(Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, LAYER_REFLECT, 0, 1, 0, reflectRay, reflectPayload);
             
     return reflectPayload.color * reflectanceFactor;
 }
@@ -349,7 +351,7 @@ bool RayAABBIntersectionTest(float3 rayOrigin, float3 rayDir, float3 aabb[2], ou
     //  that a ray direction is parallel to. In that case
     //  0 * INF => NaN
     const float FLT_INFINITY = 1.#INF;
-    float3 invRayDirection = 1.0f/rayDir;
+    float3 invRayDirection = 1.0f / rayDir;
 
     tmin3.x = (aabb[1 - sign3.x].x - rayOrigin.x) * invRayDirection.x;
     tmax3.x = (aabb[sign3.x].x - rayOrigin.x) * invRayDirection.x;
@@ -533,7 +535,7 @@ void MySphereClosestHitShader(inout RayPayload payload, in ProceduralAttributes 
     {
         reflectColor = ReflectRay(payload.direction, attrs.normal, attrs.hitPosition);
     }
-    payload.color = (float4(0, 0.7, 0.7, 1) + reflectColor)*lighting;
+    payload.color = (float4(0, 0.7, 0.7, 1) + reflectColor) * lighting;
     
 }
 
