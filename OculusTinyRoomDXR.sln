@@ -3,13 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.9.34728.123
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OculusTinyRoomDXR", "OculusTinyRoomDXR\OculusTinyRoomDXR.vcxproj", "{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OculusTinyRoomDXR _ModelLoading", "OculusTinyRoomDXR _ModelLoading\OculusTinyRoomDXR _ModelLoading.vcxproj", "{92BBB425-B615-4D1E-806C-9DD16AEDE963}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OculusTinyRoomDXR _Lighting", "OculusTinyRoomDXR _Lighting\OculusTinyRoomDXR _Lighting.vcxproj", "{2B3B15D8-7C58-4C11-8AFF-156DEA960D01}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OculusTinyRoomDXR _Spheres", "OculusTinyRoomDXR _Spheres\OculusTinyRoomDXR _Spheres.vcxproj", "{D80F3FB0-23A0-4983-81E8-4F2EC1CF7CDE}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OculusTinyRoomDXR ", "OculusTinyRoomDXR\OculusTinyRoomDXR .vcxproj", "{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -19,14 +19,6 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Debug|x64.ActiveCfg = Debug|x64
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Debug|x64.Build.0 = Debug|x64
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Debug|x86.ActiveCfg = Debug|Win32
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Debug|x86.Build.0 = Debug|Win32
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Release|x64.ActiveCfg = Release|x64
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Release|x64.Build.0 = Release|x64
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Release|x86.ActiveCfg = Release|Win32
-		{CD2A965D-096F-413F-9FDC-FD018CBF5F4A}.Release|x86.Build.0 = Release|Win32
 		{92BBB425-B615-4D1E-806C-9DD16AEDE963}.Debug|x64.ActiveCfg = Debug|x64
 		{92BBB425-B615-4D1E-806C-9DD16AEDE963}.Debug|x64.Build.0 = Debug|x64
 		{92BBB425-B615-4D1E-806C-9DD16AEDE963}.Debug|x86.ActiveCfg = Debug|Win32
@@ -51,6 +43,14 @@ Global
 		{D80F3FB0-23A0-4983-81E8-4F2EC1CF7CDE}.Release|x64.Build.0 = Release|x64
 		{D80F3FB0-23A0-4983-81E8-4F2EC1CF7CDE}.Release|x86.ActiveCfg = Release|Win32
 		{D80F3FB0-23A0-4983-81E8-4F2EC1CF7CDE}.Release|x86.Build.0 = Release|Win32
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Debug|x64.ActiveCfg = Debug|x64
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Debug|x64.Build.0 = Debug|x64
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Debug|x86.ActiveCfg = Debug|Win32
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Debug|x86.Build.0 = Debug|Win32
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Release|x64.ActiveCfg = Release|x64
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Release|x64.Build.0 = Release|x64
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Release|x86.ActiveCfg = Release|Win32
+		{3B405B1A-7A06-4CA1-B640-74A2806E5FB2}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

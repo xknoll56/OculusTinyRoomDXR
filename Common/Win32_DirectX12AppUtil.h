@@ -1898,7 +1898,7 @@ public:
                         {
                             hr = currFrameRes.PresentFenceRes->SetEventOnCompletion(currFrameRes.PresentFenceWaitValue, currFrameRes.PresentFenceEvent);
                             VALIDATE((hr == ERROR_SUCCESS), "SetEventOnCompletion failed");
-                            WaitForSingleObject(currFrameRes.PresentFenceEvent, 10000);
+                            WaitForSingleObject(currFrameRes.PresentFenceEvent, INFINITE);
                         }
                     }
                 }
