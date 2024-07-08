@@ -2566,6 +2566,8 @@ struct ModelComponent
     Material material;
     static UINT numInstances;
     bool scaleUvs = false;
+    UINT hitShaderIndex;
+    UINT layerMask;
 
     void SetIdentity()
     {
@@ -2579,16 +2581,21 @@ struct ModelComponent
         pVertexBuffer = nullptr;
         instanceIndex = numInstances++;
         vbIndex = 0;
+        hitShaderIndex = 0;
+        layerMask = ~0;
     }
 
-    ModelComponent(Material mat)
+    ModelComponent(Material mat, XMMATRIX transform, VertexBuffer* pVertexBuffer, UINT vbIndex, UINT hitShaderIndex, UINT layerMask)
     {
         SetIdentity();
         GetNormalizedRGB(0xffffffff);
-        pVertexBuffer = nullptr;
         instanceIndex = numInstances++;
         material = mat;
-        vbIndex = 0;
+        this->pVertexBuffer = pVertexBuffer;
+        this->vbIndex = vbIndex;
+        this->hitShaderIndex = hitShaderIndex;
+        this->layerMask = layerMask;
+        this->transform = transform;
     }
 
     void SetAsBox(float x1, float y1, float z1, float x2, float y2, float z2)
@@ -2617,15 +2624,17 @@ struct ModelComponent
         this->color.w = 1.0f;
     }
 
-    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color)
+    ModelComponent(float x1, float y1, float z1, float x2, float y2, float z2, uint32_t color, VertexBuffer* pVertexBuffer)
     {
         SetIdentity();
         SetAsBox(x1, y1, z1, x2, y2, z2);
         GetNormalizedRGB(color);
-        pVertexBuffer = nullptr;
+        this->pVertexBuffer = pVertexBuffer;
         vbIndex = 0;
         instanceIndex = numInstances++;
         scaleUvs = true;
+        hitShaderIndex = 0;
+        layerMask = ~0;
     }
 
 };
@@ -2637,24 +2646,19 @@ struct Model
 {
     std::vector<ModelComponent> components;
     XMMATRIX transform;
-    VertexBuffer* pVertexBuffer;
-    UINT hitShaderIndex;
-    UINT layerMask;
+
 
     Model() 
     {
         transform = XMMatrixIdentity();
     }
     
-    Model(std::vector<ModelComponent> components, Material material, VertexBuffer* pVertexBuffer, UINT hitShaderIndex)
+    Model(std::vector<ModelComponent> components, Material material)
     {
         this->components = components;
         for (int i = 0; i < components.size(); i++)
             this->components[i].material = material;
         transform = XMMatrixIdentity();
-        this->pVertexBuffer = pVertexBuffer;
-        this->hitShaderIndex = hitShaderIndex;
-        this->layerMask = ~0;
     }
 
     //Model(std::vector<ModelComponent> components)
@@ -2752,6 +2756,9 @@ struct Model
                 if (materialId != currentMaterialId) {
                     if (!indices.empty()) {
                         ModelComponent component;
+                        component.pVertexBuffer = &vertexBuffer;
+                        component.layerMask = ~0;
+                        component.hitShaderIndex = 0;
                         component.vbIndex = vertexBuffer.globalStartVBIndices.size();
                         if (materialToTextureIndex.find(currentMaterialId) != materialToTextureIndex.end()) {
                             component.material.TexIndex = materialToTextureIndex[currentMaterialId];
@@ -2803,6 +2810,9 @@ struct Model
             // Add the remaining vertices and indices to the model
             if (!indices.empty()) {
                 ModelComponent component;
+                component.pVertexBuffer = &vertexBuffer;
+                component.layerMask = ~0;
+                component.hitShaderIndex = 0;
                 component.vbIndex = vertexBuffer.globalStartVBIndices.size();
                 if (materialToTextureIndex.find(currentMaterialId) != materialToTextureIndex.end()) {
                     component.material.TexIndex = materialToTextureIndex[currentMaterialId];
@@ -2816,9 +2826,6 @@ struct Model
         }
 
         std::pair<Model, std::vector<Texture*>> retVal;
-        model.pVertexBuffer = &vertexBuffer;
-        model.hitShaderIndex = 0;
-        model.layerMask = ~0;
         retVal.first = model;
         retVal.second = materialTextures;
         return retVal;
@@ -3016,10 +3023,10 @@ struct Scene
                 //}
                 XMMATRIX transform = XMMatrixMultiply(models[i].transform, models[i].components[j].transform);
                 UpdateInstanceTransform(index, transform);
-                instanceDescsArray[index].InstanceMask = models[i].layerMask;
+                instanceDescsArray[index].InstanceMask = models[i].components[j].layerMask;
                 instanceDescsArray[index].InstanceID = index; // Assign unique instance IDs
-                instanceDescsArray[index].AccelerationStructure = models[i].pVertexBuffer->m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
-                instanceDescsArray[index].InstanceContributionToHitGroupIndex = models[i].hitShaderIndex;
+                instanceDescsArray[index].AccelerationStructure = models[i].components[j].pVertexBuffer->m_globalBottomLevelAccelerationStructures[models[i].components[j].vbIndex]->GetGPUVirtualAddress();
+                instanceDescsArray[index].InstanceContributionToHitGroupIndex = models[i].components[j].hitShaderIndex;
                 instanceData[index].vertexBufferId = models[i].components[j].vbIndex;
                 instanceData[index].textureId = models[i].components[j].material.TexIndex;
 
@@ -3171,58 +3178,58 @@ struct Scene
         std::vector<ModelComponent> transforms;
         numInstances = 0;
 
-        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040));
-        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1), &globalVertexBuffer, 0));
+        transforms.push_back(ModelComponent(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0xff404040, &globalVertexBuffer));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
         
         transforms.clear();
-        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
-        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
-        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000, &globalVertexBuffer));
+        transforms.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000, &globalVertexBuffer));
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
 
 
         transforms.clear();
-        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080));
-        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080));
-        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080));
-        models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1), &globalVertexBuffer, 0));
+        transforms.push_back(ModelComponent(10.1f, 0.0f, 20.0f, 10.0f, 4.0f, -20.0f, 0xff808080, &globalVertexBuffer));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.1f, -10.0f, 4.0f, 20.0f, 0xff808080, &globalVertexBuffer));
+        transforms.push_back(ModelComponent(-10.0f, -0.1f, 20.0f, -10.1f, 4.0f, -20.0f, 0xff808080, &globalVertexBuffer));
+        models.push_back(Model(transforms, Material((UINT)Texture::AUTO_WALL - 1)));
 
         transforms.clear();
-        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080));
-        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080));
-        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1), &globalVertexBuffer, 0));
+        transforms.push_back(ModelComponent(10.0f, -0.1f, 20.0f, -10.0f, 0.0f, -20.1f, 0xff808080, &globalVertexBuffer));
+        transforms.push_back(ModelComponent(15.0f, -6.1f, -18.0f, -15.0f, -6.0f, -30.0f, 0xff808080, &globalVertexBuffer));
+        models.push_back(Model(transforms, Material(Texture::AUTO_FLOOR - 1)));
 
 
         transforms.clear();
-        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080));
-        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1), &globalVertexBuffer, 0));
+        transforms.push_back(ModelComponent(10.0f, 4.0f, 20.0f, -10.0f, 4.1f, -20.1f, 0xff808080, &globalVertexBuffer));
+        models.push_back(Model(transforms, Material(Texture::AUTO_CEILING - 1)));
 
         transforms.clear();
         //TriangleSet furniture;
-        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838));    // Right side shelf// Verticals
-        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838));   // Right side shelf
-        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838)); // Right side shelf// Horizontals
-        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838)); // Right side shelf
-        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838));   // Right railing
-        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838));   // Left railing
+        transforms.push_back(ModelComponent(-9.5f, 0.75f, -3.0f, -10.1f, 2.5f, -3.1f, 0xff383838, &globalVertexBuffer));    // Right side shelf// Verticals
+        transforms.push_back(ModelComponent(-9.5f, 0.95f, -3.7f, -10.1f, 2.75f, -3.8f, 0xff383838, &globalVertexBuffer));   // Right side shelf
+        transforms.push_back(ModelComponent(-9.55f, 1.20f, -2.5f, -10.1f, 1.30f, -3.75f, 0xff383838, &globalVertexBuffer)); // Right side shelf// Horizontals
+        transforms.push_back(ModelComponent(-9.55f, 2.00f, -3.05f, -10.1f, 2.10f, -4.2f, 0xff383838, &globalVertexBuffer)); // Right side shelf
+        transforms.push_back(ModelComponent(-5.0f, 1.1f, -20.0f, -10.0f, 1.2f, -20.1f, 0xff383838, &globalVertexBuffer));   // Right railing
+        transforms.push_back(ModelComponent(10.0f, 1.1f, -20.0f, 5.0f, 1.2f, -20.1f, 0xff383838, &globalVertexBuffer));   // Left railing
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050)); // Left Bars
+            transforms.push_back(ModelComponent(-f, 0.0f, -20.0f, -f - 0.1f, 1.1f, -20.1f, 0xff505050, &globalVertexBuffer)); // Left Bars
         for (float f = 5; f <= 9; f += 1)
-            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050)); // Right Bars
-        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000));  // Table
-        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000)); // Table Leg
-        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000)); // Table Leg
-        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000));  // Table Leg
-        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000));  // Table Leg
-        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050));  // Chair Set
-        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050)); // Chair Leg 1
-        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050)); // Chair Leg 2
-        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050)); // Chair Back high bar
+            transforms.push_back(ModelComponent(f, 1.1f, -20.0f, f + 0.1f, 0.0f, -20.1f, 0xff505050, &globalVertexBuffer)); // Right Bars
+        transforms.push_back(ModelComponent(1.8f, 0.8f, -1.0f, 0.0f, 0.7f, 0.0f, 0xff505000, &globalVertexBuffer));  // Table
+        transforms.push_back(ModelComponent(1.8f, 0.0f, 0.0f, 1.7f, 0.7f, -0.1f, 0xff505000, &globalVertexBuffer)); // Table Leg
+        transforms.push_back(ModelComponent(1.8f, 0.7f, -1.0f, 1.7f, 0.0f, -0.9f, 0xff505000, &globalVertexBuffer)); // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.0f, -1.0f, 0.1f, 0.7f, -0.9f, 0xff505000, &globalVertexBuffer));  // Table Leg
+        transforms.push_back(ModelComponent(0.0f, 0.7f, 0.0f, 0.1f, 0.0f, -0.1f, 0xff505000, &globalVertexBuffer));  // Table Leg
+        transforms.push_back(ModelComponent(1.4f, 0.5f, 1.1f, 0.8f, 0.55f, 0.5f, 0xff202050, &globalVertexBuffer));  // Chair Set
+        transforms.push_back(ModelComponent(1.401f, 0.0f, 1.101f, 1.339f, 1.0f, 1.039f, 0xff202050, &globalVertexBuffer)); // Chair Leg 1
+        transforms.push_back(ModelComponent(1.401f, 0.5f, 0.499f, 1.339f, 0.0f, 0.561f, 0xff202050, &globalVertexBuffer)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 0.0f, 0.499f, 0.861f, 0.5f, 0.561f, 0xff202050, &globalVertexBuffer)); // Chair Leg 2
+        transforms.push_back(ModelComponent(0.799f, 1.0f, 1.101f, 0.861f, 0.0f, 1.039f, 0xff202050, &globalVertexBuffer)); // Chair Leg 2
+        transforms.push_back(ModelComponent(1.4f, 0.97f, 1.05f, 0.8f, 0.92f, 1.10f, 0xff202050, &globalVertexBuffer)); // Chair Back high bar
         for (float f = 3.0f; f <= 6.6f; f += 0.4f)
-            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040)); // Posts
+            transforms.push_back(ModelComponent(3, 0.0f, -f, 2.9f, 1.3f, -f - 0.1f, 0xff404040, &globalVertexBuffer)); // Posts
 
-        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
+        models.push_back(Model(transforms, Material(Texture::AUTO_WHITE - 1)));
         numInstances = ModelComponent::numInstances;
 
         globalVertexBuffer.InitGlobalVertexBuffers();

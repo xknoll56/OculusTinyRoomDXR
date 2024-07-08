@@ -238,14 +238,15 @@ struct SceneModel : Scene
     void Init(bool includeIntensiveGPUobject) override
     {
         std::vector<ModelComponent> components;
-        components.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000));
-        models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
+        components.push_back(ModelComponent(0.05f, -0.01f, 0.1f, -0.05f, +0.01f, -0.1f, 0xffff0000, &globalVertexBuffer));
+        models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1)));
 
         components.clear();
-        components.push_back(ModelComponent(-0.02f, -0.1f, -0.02f, 0.02f, +0.1f, 0.02f, 0xFFFFFFFF));
-        components.push_back(ModelComponent(-0.04f, 0.1f, -0.04f, 0.04f, +0.16f, 0.04f, 0xFFFFFFFF));
-        models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1), &globalVertexBuffer, 0));
-        models[1].layerMask = 1;
+        components.push_back(ModelComponent(-0.02f, -0.1f, -0.02f, 0.02f, +0.1f, 0.02f, 0xFFFFFFFF, &globalVertexBuffer));
+        components.push_back(ModelComponent(-0.04f, 0.1f, -0.04f, 0.04f, +0.16f, 0.04f, 0xFFFFFFFF, &globalVertexBuffer));
+        models.push_back(Model(components, Material(Texture::AUTO_WHITE - 1)));
+        models[1].components[1].layerMask = 1;
+        models[1].components[0].layerMask = 1;
 
         Model model = AddObjModelToScene("Sponza/sponza.obj", "Sponza");
         XMMATRIX scaleAdjust = XMMatrixScaling(0.01, 0.01, 0.01);
